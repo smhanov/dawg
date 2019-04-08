@@ -1,4 +1,5 @@
 # dawg [![GoDoc](https://godoc.org/github.com/smhanov/dawg?status.svg)](https://godoc.org/github.com/smhanov/dawg)
+[![CircleCI](https://circleci.com/gh/smhanov/dawg.svg?style=svg)](https://circleci.com/gh/smhanov/dawg)
 Package dawg is an implemention of a Directed Acyclic Word Graph, as described on my blog at http://stevehanov.ca/blog/?id=115 It is designed to be as memory efficient as possible.
 
 Download:
