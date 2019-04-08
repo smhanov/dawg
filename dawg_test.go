@@ -17,19 +17,16 @@ func testsWords() []string {
 	}
 }
 
-func createDawg(words []string) dawg.Dawg {
-	dawg := dawg.NewDAWG()
+func createDawg(words []string) (dawg.Builder, dawg.Finder) {
+	dawg := dawg.New()
 	for _, word := range words {
 		dawg.Add(word)
 	}
 
-	dawg.Finish()
-	dawg.Print()
-	return dawg
+	return dawg, dawg.Finish()
 }
 
-func runTest(t *testing.T, words []string) dawg.Dawg {
-	dawg := createDawg(words)
+func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
 	added := dawg.NumAdded()
 	if added != len(words) {
 		t.Errorf("NumWords() returned %d, expected %d", added, len(words))
@@ -42,8 +39,28 @@ func runTest(t *testing.T, words []string) dawg.Dawg {
 			t.Errorf("Index returned should be %v, not %v", i, index)
 		}
 	}
+}
 
-	return dawg
+func runTest(t *testing.T, words []string) dawg.Finder {
+	builder, finder := createDawg(words)
+	testDawg(t, finder, words)
+
+	// Now try the disk version
+	_, err := builder.Save("test.dawg")
+	if err != nil {
+		log.Panic(err)
+	}
+
+	saved, err := dawg.Load("test.dawg")
+	if err != nil {
+		log.Panic(err)
+	}
+
+	saved.Print()
+
+	testDawg(t, saved, words)
+
+	return finder
 }
 
 func TestZeroLengthWord(t *testing.T) {
@@ -66,9 +83,9 @@ func TestHelloJello(t *testing.T) {
 }
 
 func testPrefixes(t *testing.T, words []string, word string, shouldbe []dawg.FindResult) {
-	dawg := createDawg(words)
+	_, finder := createDawg(words)
 
-	results := dawg.FindAllPrefixesOf(word)
+	results := finder.FindAllPrefixesOf(word)
 
 	if len(results) != len(shouldbe) {
 		t.Errorf("Got %v but should be %v", results, shouldbe)
@@ -98,11 +115,11 @@ func TestPrefixes(t *testing.T) {
 	})
 }
 
-func TestFullDict(t *testing.T) {
+func readDictWords(t *testing.T) []string {
 	dict := "/usr/share/dict/words"
 	if _, err := os.Stat(dict); os.IsNotExist(err) {
 		t.Logf("Skipping full dictionary test; can't find %s", dict)
-		return
+		return nil
 	}
 
 	file, err := os.Open(dict)
@@ -116,23 +133,27 @@ func TestFullDict(t *testing.T) {
 	for scanner.Scan() {
 		words = append(words, scanner.Text())
 	}
+	return words
+}
 
+func TestFullDict(t *testing.T) {
+	words := readDictWords(t)
 	dawg := runTest(t, words)
 	t.Logf("DAWG has %v words, %v nodes, %v edges",
 		dawg.NumAdded(), dawg.NumNodes(), dawg.NumEdges())
 }
 
-func ExampleNewDAWG() {
-	dawg := dawg.NewDAWG()
+func ExampleNew() {
+	dawg := dawg.New()
 
 	dawg.Add("blip")   // index 0
 	dawg.Add("cat")    // index 1
 	dawg.Add("catnip") // index 2
 	dawg.Add("cats")   // index 3
 
-	dawg.Finish()
+	finder := dawg.Finish()
 
-	for _, result := range dawg.FindAllPrefixesOf("catsup") {
+	for _, result := range finder.FindAllPrefixesOf("catsup") {
 		fmt.Printf("Found prefix %s, index %d\n", result.Word, result.Index)
 	}
 
