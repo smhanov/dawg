@@ -3,7 +3,7 @@ Package dawg is an implemention of a Directed Acyclic Word Graph, as described
 on my blog at http://stevehanov.ca/blog/?id=115
 
 It is designed to be as memory efficient as possible. Instead of storing
-a map in each node, which can consume hundreds of bytes, one map is
+a map in each node, which can consume hundreds of bytes per node, one map is
 used to store the edges of all nodes.
 
 When you are finished adding words, all unneeded information is
@@ -19,6 +19,7 @@ which are also words, or looking up a word's index that you have previously adde
 
 After you have called Finish() on a Builder, you may choose to write it to disk using the
 Save() function. The DAWG can then be opened again later using the Load() function.
-When opened from dist, no memory is used. The structure is accessed in-place on disk.
+When opened from dist, no memory is used. The structure is accessed in-place on disk
+using a minimal perfect hash.
 */
 package dawg
