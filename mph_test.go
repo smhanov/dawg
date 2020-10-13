@@ -5,8 +5,8 @@ import (
 )
 
 func testMph(t *testing.T, words []string) {
-	G, permute := minimalPerfectHash(words, func(d int32, i int) int {
-		return stringHash(d, words[i])
+	G, permute := CreateMinimalPerfectHash(len(words), func(d int32, i int) int {
+		return StringHash(d, words[i])
 	})
 
 	words2 := make([]string, len(words), len(words))
@@ -19,14 +19,14 @@ func testMph(t *testing.T, words []string) {
 	//}
 
 	for _, word := range words2 {
-		d := G[int(stringHash(0, word))%len(G)]
+		d := G[int(StringHash(0, word))%len(G)]
 		//log.Printf("Word %s hashes to %d, D=%d", word, int(hash(0, word))%len(G), d)
 		var result string
 		if d < 0 {
 			result = words2[-d-1]
 			//log.Printf("   Second hash is %d", -d-1)
 		} else {
-			result = words2[int(stringHash(d, word))%len(words2)]
+			result = words2[int(StringHash(d, word))%len(words2)]
 			//log.Printf("   Second hash is %d", int(hash(d, word))%len(G))
 		}
 

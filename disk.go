@@ -10,7 +10,7 @@ import (
 )
 
 func edgeHash(d int32, edge edgeStart) int {
-	return stringHash(d, fmt.Sprintf("%d:%d", edge.node, edge.ch))
+	return StringHash(d, fmt.Sprintf("%d:%d", edge.node, edge.ch))
 }
 
 // Save writes the DAWG to disk. Returns the number of bytes written
@@ -78,7 +78,7 @@ func (dawg *Dawg) Write(w io.Writer) (int, error) {
 	//log.Printf("Edges are %v", edges)
 
 	// create minimal perfect hash
-	G, permute := minimalPerfectHash(edges, func(d int32, i int) int {
+	G, permute := CreateMinimalPerfectHash(len(edges), func(d int32, i int) int {
 		return edgeHash(d, edges[i])
 	})
 

@@ -2,13 +2,12 @@ package dawg
 
 import (
 	"fmt"
-	"reflect"
 	"sort"
 )
 
 // StringHash implements the FNV32A hash for strings,
 // taking d as a parameter to provide a variation of the hash
-func stringHash(d int32, str string) int {
+func StringHash(d int32, str string) int {
 	result := int(d)
 	if d == 0 {
 		result = 0x01000193
@@ -22,7 +21,7 @@ func stringHash(d int32, str string) int {
 	return result
 }
 
-// MinimalPerfectHash creates a minimal perfect hash for an array
+// CreateMinimalPerfectHash creates a minimal perfect hash for an array
 // of items. Size is the number of items, and hash is a hash function.
 // The hash function takes d, a variant, and i, the index of the item to hash,
 // and returns its hashed value.
@@ -30,10 +29,7 @@ func stringHash(d int32, str string) int {
 // The result is two arrays. The first, G, contains the d value to use
 // for the secondary hash function. The second contains a shuffling of the
 // items, indicating which item should be placed in each slot.
-func minimalPerfectHash(itemsIf interface{}, hash func(d int32, i int) int) ([]int32, []int) {
-	items := reflect.ValueOf(itemsIf)
-	size := items.Len()
-
+func CreateMinimalPerfectHash(size int, hash func(d int32, i int) int) ([]int32, []int) {
 	// Step 1: Place all of the keys into buckets
 	buckets := make([][]int, size, size)
 	G := make([]int32, size, size)
