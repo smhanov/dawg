@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"testing"
 
 	"github.com/smhanov/dawg"
@@ -36,13 +37,14 @@ func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
 		index := dawg.IndexOf(word)
 
 		if index != i {
-			t.Errorf("Index returned should be %v, not %v", i, index)
+			log.Panicf("Index returned should be %v, not %v", i, index)
 		}
 	}
 }
 
 func runTest(t *testing.T, words []string) dawg.Finder {
 	builder, finder := createDawg(words)
+	finder.Print()
 	testDawg(t, finder, words)
 
 	// Now try the disk version
@@ -51,12 +53,14 @@ func runTest(t *testing.T, words []string) dawg.Finder {
 		log.Panic(err)
 	}
 
+	f, err := os.Open("test.dawg")
+	dawg.DumpFile(f)
+	f.Close()
+
 	saved, err := dawg.Load("test.dawg")
 	if err != nil {
 		log.Panic(err)
 	}
-
-	saved.Print()
 
 	testDawg(t, saved, words)
 
@@ -133,7 +137,19 @@ func readDictWords(t *testing.T) []string {
 	for scanner.Scan() {
 		words = append(words, scanner.Text())
 	}
-	return words
+
+	sort.Slice(words, func(i, j int) bool {
+		return words[i] < words[j]
+	})
+
+	var unique []string
+	unique = append(unique, words[0])
+	for i := 1; i < len(words); i++ {
+		if words[i] != words[i-1] {
+			unique = append(unique, words[i])
+		}
+	}
+	return unique
 }
 
 func TestFullDict(t *testing.T) {

@@ -7,18 +7,18 @@ import (
 
 // StringHash implements the FNV32A hash for strings,
 // taking d as a parameter to provide a variation of the hash
-func StringHash(d int32, str string) int {
-	result := int(d)
+func StringHash(d uint32, str string) uint32 {
+	result := uint64(d)
 	if d == 0 {
 		result = 0x01000193
 	}
 
 	// Use the FNV algorithm from http://isthe.com/chongo/tech/comp/fnv/
 	for _, c := range []byte(str) {
-		result = ((result * 0x01000193) ^ int(c)) & 0xffffffff
+		result = ((result * 0x01000193) ^ uint64(c)) & 0xffffffff
 	}
 
-	return result
+	return uint32(result)
 }
 
 // CreateMinimalPerfectHash creates a minimal perfect hash for an array
@@ -29,7 +29,7 @@ func StringHash(d int32, str string) int {
 // The result is two arrays. The first, G, contains the d value to use
 // for the secondary hash function. The second contains a shuffling of the
 // items, indicating which item should be placed in each slot.
-func CreateMinimalPerfectHash(size int, hash func(d int32, i int) int) ([]int32, []int) {
+func CreateMinimalPerfectHash(size int, hash func(d uint32, i int) uint32) ([]int32, []int) {
 	// Step 1: Place all of the keys into buckets
 	buckets := make([][]int, size, size)
 	G := make([]int32, size, size)
@@ -49,7 +49,7 @@ func CreateMinimalPerfectHash(size int, hash func(d int32, i int) int) ([]int32,
 		return len(buckets[i]) >= len(buckets[j])
 	})
 
-	var maxD int32
+	var maxD uint32
 	var b int
 	for b = 0; b < len(buckets); b++ {
 		bucket := buckets[b]
@@ -58,7 +58,7 @@ func CreateMinimalPerfectHash(size int, hash func(d int32, i int) int) ([]int32,
 			break
 		}
 
-		d := int32(1)
+		d := uint32(1)
 		item := 0
 		slots := make([]int, 0, len(bucket))
 
