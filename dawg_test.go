@@ -44,7 +44,7 @@ func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
 
 func runTest(t *testing.T, words []string) dawg.Finder {
 	builder, finder := createDawg(words)
-	finder.Print()
+	//finder.Print()
 	testDawg(t, finder, words)
 
 	// Now try the disk version
@@ -53,9 +53,9 @@ func runTest(t *testing.T, words []string) dawg.Finder {
 		log.Panic(err)
 	}
 
-	f, err := os.Open("test.dawg")
-	dawg.DumpFile(f)
-	f.Close()
+	//f, err := os.Open("test.dawg")
+	//dawg.DumpFile(f)
+	//f.Close()
 
 	saved, err := dawg.Load("test.dawg")
 	if err != nil {
@@ -157,6 +157,55 @@ func TestFullDict(t *testing.T) {
 	dawg := runTest(t, words)
 	t.Logf("DAWG has %v words, %v nodes, %v edges",
 		dawg.NumAdded(), dawg.NumNodes(), dawg.NumEdges())
+}
+
+func TestEnumerate(t *testing.T) {
+	words := []string{
+		"",
+		"blip",
+		"cat",
+		"catnip",
+		"cats",
+		"zzz",
+	}
+
+	_, finder := createDawg(words)
+	finder.Print()
+
+	total := 0
+	// test: when we get to catn, avoid descending
+	// when we get to cats, stop altogether.
+	finder.Enumerate(func(index int, word []rune, final bool) int {
+		if final {
+			total += 1
+		}
+
+		switch string(word) {
+		case "":
+			if index != 0 || !final {
+				t.Errorf("Bad index at %v %v %v", index, string(word), final)
+			}
+		case "blip":
+			if index != 1 || !final {
+				t.Errorf("Bad index at %v %v %v", index, string(word), final)
+			}
+		case "catn":
+			return dawg.Skip
+		case "catni":
+			fallthrough
+		case "catnip":
+			t.Error("Should not have got to catni")
+		case "cats":
+			return dawg.Stop
+		case "zzz":
+			t.Error("Stop had no effect.")
+		}
+		return dawg.Continue
+	})
+
+	if total != 4 {
+		t.Errorf("Did not enumerate expected number of words; only got %d", total)
+	}
 }
 
 func ExampleNew() {
