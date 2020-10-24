@@ -39,6 +39,11 @@ func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
 		if index != i {
 			log.Panicf("Index returned should be %v, not %v", i, index)
 		}
+
+		wordFound, _ := dawg.AtIndex(i)
+		if wordFound != word {
+			log.Panicf("AtIndex(%d) should be %s, not %s", i, word, wordFound)
+		}
 	}
 }
 
@@ -83,6 +88,16 @@ func TestHelloJello(t *testing.T) {
 	runTest(t, []string{
 		"hello",
 		"jello",
+	})
+}
+
+func Test5Words(t *testing.T) {
+	runTest(t, []string{
+		"",
+		"blip",
+		"cat",
+		"catnip",
+		"cats",
 	})
 }
 

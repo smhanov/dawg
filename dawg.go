@@ -9,7 +9,7 @@ import (
 	"strconv"
 )
 
-// FindResult is the result of a lookup in the Dawg. It
+// FindResult is the result of a lookup in the d. It
 // contains both the word found, and it's index based on the
 // order it was added.
 type FindResult struct {
@@ -37,7 +37,9 @@ type uncheckedNode struct {
 	child  int
 }
 
-// EnumFn is a method to enumerate
+// EnumFn is a method that you implement. It will be called with
+// all prefixes stored in the DAWG. If final is true, the prefix
+// represents a complete word that has been stored.
 type EnumFn = func(index int, word []rune, final bool) EnumerationResult
 
 // EnumerationResult is returned by the enumeration function to indicate whether
@@ -55,33 +57,57 @@ const (
 	Stop
 )
 
-// Finder is the interface for using a Dawg to find words
-// A dawg stored on disk only implements this interface, since it
-// cannot be added to.
+// Finder is the interface for querying a dawg. Use either
+// Builder.Finish() or Load() to obtain one.
 type Finder interface {
+	// Find all prefixes of the given string
 	FindAllPrefixesOf(input string) []FindResult
+
+	// Find the index of the given string
 	IndexOf(input string) int
+
+	AtIndex(index int) (string, error)
+
+	// Enumerate all prefixes stored in the dawg.
 	Enumerate(fn EnumFn)
+
+	// Returns the number of words
 	NumAdded() int
+
+	// Returns the number of edges
 	NumEdges() int
+
+	// Returns the number of nodes
 	NumNodes() int
+
+	// Output a human-readable description of the dawg to stdout
 	Print()
+
+	// Close the dawg that was read in. After this, it is no longer
+	// accessible.
 	Close() error
 }
 
-// Builder is the interface for creating a new Dawg
+// Builder is the interface for creating a new Dawg. Use New() to create it.
 type Builder interface {
+	// Returns true if the word can be added.
 	CanAdd(word string) bool
+
+	// Add the word to the dawg
 	Add(wordIn string)
+
+	// Complete the dawg and return a Finder.
 	Finish() Finder
+
+	// These may be called after Finish() to store the dawg to disk.
 	Write(w io.Writer) (int64, error)
 	Save(filename string) (int64, error)
 }
 
 const rootNode = 0
 
-// Dawg represents a Directed Acyclic Word Graph
-type Dawg struct {
+// dawg represents a Directed Acyclic Word Graph
+type dawg struct {
 	// these are erased after we finish building
 	lastWord       []rune
 	nextID         int
@@ -108,9 +134,9 @@ type Dawg struct {
 	hasEmptyWord    bool
 }
 
-// New creates a new DAWG
+// New creates a new dawg
 func New() Builder {
-	return &Dawg{
+	return &dawg{
 		nextID:         1,
 		minimizedNodes: make(map[string]int),
 		names:          make(map[int][]edgeStart),
@@ -119,29 +145,29 @@ func New() Builder {
 	}
 }
 
-// CanAdd will return true if the word can be added to the Dawg.
+// CanAdd will return true if the word can be added to the d.
 // Words must be added in alphabetical order.
-func (dawg *Dawg) CanAdd(word string) bool {
-	return !dawg.finished &&
-		(dawg.numAdded == 0 || word > string(dawg.lastWord))
+func (d *dawg) CanAdd(word string) bool {
+	return !d.finished &&
+		(d.numAdded == 0 || word > string(d.lastWord))
 }
 
 // Add adds a word to the structure.
-// Adding a word not in alphaetical order, or to a finished Dawg will panic.
-func (dawg *Dawg) Add(wordIn string) {
-	if dawg.numAdded > 0 && wordIn <= string(dawg.lastWord) {
-		log.Printf("Last word=%s newword=%s", string(dawg.lastWord), wordIn)
-		panic(errors.New("Dawg.AddWord(): Words not in alphabetical order"))
-	} else if dawg.finished {
-		panic(errors.New("Dawg.AddWord(): Tried to add to a finished Dawg"))
+// Adding a word not in alphaetical order, or to a finished dawg will panic.
+func (d *dawg) Add(wordIn string) {
+	if d.numAdded > 0 && wordIn <= string(d.lastWord) {
+		log.Printf("Last word=%s newword=%s", string(d.lastWord), wordIn)
+		panic(errors.New("d.AddWord(): Words not in alphabetical order"))
+	} else if d.finished {
+		panic(errors.New("d.AddWord(): Tried to add to a finished dawg"))
 	}
 
 	word := []rune(wordIn)
 
 	// find common prefix between word and previous word
 	commonPrefix := 0
-	for i := 0; i < min(len(word), len(dawg.lastWord)); i++ {
-		if word[i] != dawg.lastWord[i] {
+	for i := 0; i < min(len(word), len(d.lastWord)); i++ {
+		if word[i] != d.lastWord[i] {
 			break
 		}
 		commonPrefix++
@@ -150,73 +176,73 @@ func (dawg *Dawg) Add(wordIn string) {
 	// Check the uncheckedNodes for redundant nodes, proceeding from last
 	// one down to the common prefix size. Then truncate the list at that
 	// point.
-	dawg.minimize(commonPrefix)
+	d.minimize(commonPrefix)
 
 	// add the suffix, starting from the correct node mid-way through the
 	// graph
 	var node int
-	if len(dawg.uncheckedNodes) == 0 {
+	if len(d.uncheckedNodes) == 0 {
 		node = rootNode
 	} else {
-		node = dawg.uncheckedNodes[len(dawg.uncheckedNodes)-1].child
+		node = d.uncheckedNodes[len(d.uncheckedNodes)-1].child
 	}
 
 	for _, letter := range word[commonPrefix:] {
-		nextNode := dawg.newNode()
-		dawg.addChild(node, letter, nextNode)
-		dawg.uncheckedNodes = append(dawg.uncheckedNodes, uncheckedNode{node, letter, nextNode})
+		nextNode := d.newNode()
+		d.addChild(node, letter, nextNode)
+		d.uncheckedNodes = append(d.uncheckedNodes, uncheckedNode{node, letter, nextNode})
 		node = nextNode
 	}
 
-	dawg.setFinal(node)
-	dawg.lastWord = word
-	dawg.numAdded++
+	d.setFinal(node)
+	d.lastWord = word
+	d.numAdded++
 }
 
-// Finish will mark the dawg as complete. The Dawg cannot be used for lookups
+// Finish will mark the dawg as complete. The dawg cannot be used for lookups
 // until Finish has been called.
-func (dawg *Dawg) Finish() Finder {
-	if !dawg.finished {
-		dawg.finished = true
+func (d *dawg) Finish() Finder {
+	if !d.finished {
+		d.finished = true
 
-		dawg.minimize(0)
+		d.minimize(0)
 
-		dawg.numNodes = len(dawg.minimizedNodes) + 1
-		dawg.numEdges = len(dawg.edges)
+		d.numNodes = len(d.minimizedNodes) + 1
+		d.numEdges = len(d.edges)
 
 		// Fill in the counts
 		cache := make(map[int]int)
-		dawg.calculateSkipped(cache, rootNode)
+		d.calculateSkipped(cache, rootNode)
 
 		// no longer need the names.
-		dawg.names = nil
-		dawg.uncheckedNodes = nil
-		dawg.minimizedNodes = nil
-		dawg.lastWord = nil
+		d.names = nil
+		d.uncheckedNodes = nil
+		d.minimizedNodes = nil
+		d.lastWord = nil
 
-		dawg.renumber()
+		d.renumber()
 
 		var buffer bytes.Buffer
-		dawg.size, _ = dawg.Write(&buffer)
-		dawg.r = bytes.NewReader(buffer.Bytes())
+		d.size, _ = d.Write(&buffer)
+		d.r = bytes.NewReader(buffer.Bytes())
 
-		dawg.edges = nil
-		dawg.final = nil
+		d.edges = nil
+		d.final = nil
 	}
 
-	finder, _ := Read(dawg.r, 0)
+	finder, _ := Read(d.r, 0)
 
 	return finder
 }
 
-func (dawg *Dawg) renumber() {
+func (d *dawg) renumber() {
 	// after minimization, nodes have been removed so there are gaps in the node IDs.
 	// Renumber them all to be consecutive.
 
 	remap := make(map[int]int)
 	remap[rootNode] = rootNode
 
-	for start, end := range dawg.edges {
+	for start, end := range d.edges {
 		if _, ok := remap[start.node]; !ok {
 			remap[start.node] = len(remap)
 		}
@@ -226,33 +252,33 @@ func (dawg *Dawg) renumber() {
 	}
 
 	edges := make(map[edgeStart]edgeEnd)
-	for start, end := range dawg.edges {
+	for start, end := range d.edges {
 		edges[edgeStart{remap[start.node], start.ch}] = edgeEnd{remap[end.node], end.count}
 	}
-	dawg.edges = edges
+	d.edges = edges
 
 	final := make(map[int]bool)
-	for node, isFinal := range dawg.final {
+	for node, isFinal := range d.final {
 		final[remap[node]] = isFinal
 	}
 
-	dawg.final = final
+	d.final = final
 }
 
 // Print will print all edges to the standard output
-func (dawg *Dawg) Print() {
-	DumpFile(dawg.r)
+func (d *dawg) Print() {
+	DumpFile(d.r)
 }
 
 // FindAllPrefixesOf returns all items in the dawg that are a prefix of the input string.
 // It will panic if the dawg is not finished.
-func (dawg *Dawg) FindAllPrefixesOf(input string) []FindResult {
+func (d *dawg) FindAllPrefixesOf(input string) []FindResult {
 
-	dawg.checkFinished()
+	d.checkFinished()
 
 	var results []FindResult
 	skipped := 0
-	final := dawg.hasEmptyWord
+	final := d.hasEmptyWord
 	node := rootNode
 	var edgeEnd edgeEnd
 	var ok bool
@@ -268,7 +294,7 @@ func (dawg *Dawg) FindAllPrefixesOf(input string) []FindResult {
 		}
 
 		// check if there is an outgoing edge for the letter
-		edgeEnd, final, ok = dawg.getEdge(edgeStart{node: node, ch: letter})
+		edgeEnd, final, ok = d.getEdge(edgeStart{node: node, ch: letter})
 		if !ok {
 			return results
 		}
@@ -291,17 +317,17 @@ func (dawg *Dawg) FindAllPrefixesOf(input string) []FindResult {
 // IndexOf returns the index, which is the order the item was inserted.
 // If the item was never inserted, it returns -1
 // It will panic if the dawg is not finished.
-func (dawg *Dawg) IndexOf(input string) int {
+func (d *dawg) IndexOf(input string) int {
 	skipped := 0
 	node := rootNode
-	final := dawg.hasEmptyWord
+	final := d.hasEmptyWord
 	var ok bool
 	var edgeEnd edgeEnd
 
 	// for each character of the input
 	for _, letter := range input {
 		// check if there is an outgoing edge for the letter
-		edgeEnd, final, ok = dawg.getEdge(edgeStart{node: node, ch: letter})
+		edgeEnd, final, ok = d.getEdge(edgeStart{node: node, ch: letter})
 		//log.Printf("Follow %v:%v=>%v (ok=%v)", node, string(letter), edgeEnd.node, ok)
 		if !ok {
 			// not found
@@ -321,103 +347,103 @@ func (dawg *Dawg) IndexOf(input string) int {
 }
 
 // NumAdded returns the number of words added
-func (dawg *Dawg) NumAdded() int {
-	return dawg.numAdded
+func (d *dawg) NumAdded() int {
+	return d.numAdded
 }
 
-// NumNodes returns the number of nodes in the dawg.
-func (dawg *Dawg) NumNodes() int {
-	return dawg.numNodes
+// NumNodes returns the number of nodes in the d.
+func (d *dawg) NumNodes() int {
+	return d.numNodes
 }
 
-// NumEdges returns the number of edges in the dawg. This includes transitions to
+// NumEdges returns the number of edges in the d. This includes transitions to
 // the "final" node after each word.
-func (dawg *Dawg) NumEdges() int {
-	return dawg.numEdges
+func (d *dawg) NumEdges() int {
+	return d.numEdges
 }
 
-func (dawg *Dawg) checkFinished() {
-	if !dawg.finished {
-		panic(errors.New("DAWG was not Finished()"))
+func (d *dawg) checkFinished() {
+	if !d.finished {
+		panic(errors.New("dawg was not Finished()"))
 	}
 }
 
-func (dawg *Dawg) minimize(downTo int) {
+func (d *dawg) minimize(downTo int) {
 	// proceed from the leaf up to a certain point
-	for i := len(dawg.uncheckedNodes) - 1; i >= downTo; i-- {
-		u := dawg.uncheckedNodes[i]
-		name := dawg.nameOf(u.child)
-		if node, ok := dawg.minimizedNodes[name]; ok {
+	for i := len(d.uncheckedNodes) - 1; i >= downTo; i-- {
+		u := d.uncheckedNodes[i]
+		name := d.nameOf(u.child)
+		if node, ok := d.minimizedNodes[name]; ok {
 			// replace the child with the previously encountered one
-			dawg.replaceChild(u.parent, u.ch, node)
+			d.replaceChild(u.parent, u.ch, node)
 		} else {
 			// add the state to the minimized nodes.
-			dawg.minimizedNodes[name] = u.child
+			d.minimizedNodes[name] = u.child
 		}
 	}
 
-	dawg.uncheckedNodes = dawg.uncheckedNodes[:downTo]
+	d.uncheckedNodes = d.uncheckedNodes[:downTo]
 }
 
-func (dawg *Dawg) newNode() int {
-	dawg.nextID++
-	return dawg.nextID - 1
+func (d *dawg) newNode() int {
+	d.nextID++
+	return d.nextID - 1
 }
 
-func (dawg *Dawg) nameOf(node int) string {
+func (d *dawg) nameOf(node int) string {
 	// node name is id_ch:id... for each child
 	buff := bytes.Buffer{}
-	for _, edge := range dawg.names[node] {
+	for _, edge := range d.names[node] {
 		buff.WriteByte('_')
 		buff.WriteRune(edge.ch)
 		buff.WriteByte(':')
 		buff.WriteString(strconv.Itoa(edge.node))
 	}
 
-	if dawg.final[node] {
+	if d.final[node] {
 		buff.WriteByte('!')
 	}
 
 	return buff.String()
 }
 
-func (dawg *Dawg) setFinal(node int) {
-	dawg.final[node] = true
+func (d *dawg) setFinal(node int) {
+	d.final[node] = true
 	if node == rootNode {
-		dawg.hasEmptyWord = true
+		d.hasEmptyWord = true
 	}
 }
 
-func (dawg *Dawg) addChild(parent int, ch rune, child int) {
+func (d *dawg) addChild(parent int, ch rune, child int) {
 	//log.Printf("Addchild %v(%v)->%v", parent, string(ch), child)
-	dawg.names[parent] = append(dawg.names[parent], edgeStart{child, ch})
-	dawg.edges[edgeStart{parent, ch}] = edgeEnd{node: child}
+	d.names[parent] = append(d.names[parent], edgeStart{child, ch})
+	d.edges[edgeStart{parent, ch}] = edgeEnd{node: child}
 }
 
-func (dawg *Dawg) getChild(parent int, ch rune) edgeEnd {
-	return dawg.edges[edgeStart{parent, ch}]
+func (d *dawg) getChild(parent int, ch rune) edgeEnd {
+	return d.edges[edgeStart{parent, ch}]
 }
 
-func (dawg *Dawg) replaceChild(parent int, ch rune, child int) {
+func (d *dawg) replaceChild(parent int, ch rune, child int) {
 	start := edgeStart{parent, ch}
-	oldChild := dawg.edges[start].node
+	oldChild := d.edges[start].node
 
 	//log.Printf("ReplaceChild(%v:%v=>%v, %v:%v=>%v)",
 	//	parent, string(ch), oldChild,
 	//	parent, string(ch), child)
 
 	// remove all edges out of the old child to save memory
-	for _, eStart := range dawg.names[oldChild] {
+	for _, eStart := range d.names[oldChild] {
 		//log.Printf("Remove old link %v:%v=>%v", oldChild, string(eStart.ch), eStart.node)
 		link := edgeStart{node: oldChild, ch: eStart.ch}
-		delete(dawg.edges, link)
+		delete(d.edges, link)
 	}
 
-	delete(dawg.names, oldChild)
-	delete(dawg.final, oldChild)
+	delete(d.names, oldChild)
+	delete(d.final, oldChild)
 
 	// go through the names info of the parent and replace the item
-	name := dawg.names[parent]
+	name := d.names[parent]
 	for i := range name {
 		if name[i].ch == ch {
 			name[i].node = child
@@ -426,10 +452,10 @@ func (dawg *Dawg) replaceChild(parent int, ch rune, child int) {
 	}
 
 	// finally, set the edge of the parent
-	dawg.edges[start] = edgeEnd{node: child}
+	d.edges[start] = edgeEnd{node: child}
 }
 
-func (dawg *Dawg) calculateSkipped(cache map[int]int, node int) int {
+func (d *dawg) calculateSkipped(cache map[int]int, node int) int {
 	// for each child of the node, calculate now many nodes
 	// are skipped over by following that child. This is the
 	// sum of all skipped-over counts of its previous siblings.
@@ -439,18 +465,18 @@ func (dawg *Dawg) calculateSkipped(cache map[int]int, node int) int {
 		return count
 	}
 
-	edges := dawg.names[node]
+	edges := d.names[node]
 
 	numReachable := 0
 
-	if dawg.final[node] {
+	if d.final[node] {
 		numReachable++
 	}
 
 	for _, eStart := range edges {
 		// if it marks the final node, then add one
-		dawg.setCount(node, eStart.ch, numReachable)
-		numReachable += dawg.calculateSkipped(cache, eStart.node)
+		d.setCount(node, eStart.ch, numReachable)
+		numReachable += d.calculateSkipped(cache, eStart.node)
 	}
 
 	cache[node] = numReachable
@@ -459,13 +485,13 @@ func (dawg *Dawg) calculateSkipped(cache map[int]int, node int) int {
 
 // Enumerate will call the given method, passing it every possible prefix of words in the index.
 // Return Continue to continue enumeration, Skip to skip this branch, or Stop to stop enumeration.
-func (dawg *Dawg) Enumerate(fn EnumFn) {
-	dawg.enumerate(0, rootNode, nil, fn)
+func (d *dawg) Enumerate(fn EnumFn) {
+	d.enumerate(0, rootNode, nil, fn)
 }
 
-func (dawg *Dawg) enumerate(index int, address int, runes []rune, fn EnumFn) EnumerationResult {
+func (d *dawg) enumerate(index int, address int, runes []rune, fn EnumFn) EnumerationResult {
 	// get the node and whether its final
-	node := dawg.getNode(address)
+	node := d.getNode(address)
 
 	// call the enum function on the runes
 	result := fn(index, runes, node.final)
@@ -483,7 +509,7 @@ func (dawg *Dawg) enumerate(index int, address int, runes []rune, fn EnumFn) Enu
 		// add ch to the runes
 		runes[l] = edge.ch
 		// recurse
-		result = dawg.enumerate(index+edge.count, edge.node, runes, fn)
+		result = d.enumerate(index+edge.count, edge.node, runes, fn)
 		if result == Stop {
 			break
 		}
@@ -492,11 +518,11 @@ func (dawg *Dawg) enumerate(index int, address int, runes []rune, fn EnumFn) Enu
 	return result
 }
 
-func (dawg *Dawg) setCount(node int, ch rune, count int) {
+func (d *dawg) setCount(node int, ch rune, count int) {
 	start := edgeStart{node: node, ch: ch}
-	end := dawg.edges[start]
+	end := d.edges[start]
 	end.count = count
-	dawg.edges[start] = end
+	d.edges[start] = end
 }
 
 func min(a, b int) int {
@@ -504,4 +530,42 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (d *dawg) AtIndex(index int) (string, error) {
+	if index < 0 || index >= d.NumAdded() {
+		return "", errors.New("invalid index")
+	}
+
+	// start at first node and empty string
+	result, _ := d.atIndex(rootNode, 0, index, nil)
+	return result, nil
+}
+
+func (d *dawg) atIndex(nodeNumber, atIndex, targetIndex int, runes []rune) (string, bool) {
+	node := d.getNode(nodeNumber)
+	// if node is final and index matches, return it
+	if node.final && atIndex == targetIndex {
+		return string(runes), true
+	}
+
+	next := bsearch(len(node.edges), func(i int) int {
+		//log.Printf("Check node %x:%d skip=%d against %d", nodeNumber, i, atIndex+node.edges[i].count, targetIndex)
+		return atIndex + node.edges[i].count - targetIndex
+	})
+
+	if next == len(node.edges) || atIndex+node.edges[next].count > targetIndex {
+		next--
+	}
+
+	//log.Printf("Follow edge %v %c skip=%d", node.edges[next], node.edges[next].ch, node.edges[next].count)
+	runes = append(runes, 0)
+	for i := next; i < len(node.edges); i++ {
+		runes[len(runes)-1] = node.edges[i].ch
+		if result, ok := d.atIndex(node.edges[i].node, atIndex+node.edges[i].count, targetIndex, runes); ok {
+			return result, ok
+		}
+	}
+	return "", false
+
 }

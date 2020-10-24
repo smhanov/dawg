@@ -41,9 +41,9 @@ loop {
 }
 */
 
-// Save writes the DAWG to disk. Returns the number of bytes written
-func (dawg *Dawg) Save(filename string) (int64, error) {
-	dawg.checkFinished()
+// Save writes the dawg to disk. Returns the number of bytes written
+func (d *dawg) Save(filename string) (int64, error) {
+	d.checkFinished()
 
 	f, err := os.Create(filename)
 	if err != nil {
@@ -51,7 +51,7 @@ func (dawg *Dawg) Save(filename string) (int64, error) {
 	}
 
 	defer f.Close()
-	return dawg.Write(f)
+	return d.Write(f)
 }
 
 func readUint32(r io.ReaderAt, at int64) uint32 {
@@ -66,20 +66,20 @@ func readUint32(r io.ReaderAt, at int64) uint32 {
 		(uint32(data[3]) << 0)
 }
 
-// Save writes the DAWG to an io.Writer. Returns the number of bytes written
-func (dawg *Dawg) Write(wIn io.Writer) (int64, error) {
-	if dawg.r != nil {
-		return io.Copy(wIn, io.NewSectionReader(dawg.r, 0, dawg.size))
+// Save writes the dawg to an io.Writer. Returns the number of bytes written
+func (d *dawg) Write(wIn io.Writer) (int64, error) {
+	if d.r != nil {
+		return io.Copy(wIn, io.NewSectionReader(d.r, 0, d.size))
 	}
 
-	if !dawg.finished {
+	if !d.finished {
 		return 0, errors.New("dawg not finished")
 	}
 
 	w := newBitWriter(wIn)
 
 	// get all the edges
-	edges := dawg.getEdges()
+	edges := d.getEdges()
 
 	// get maximum character and calculate cbits
 	// record node addresses, calculate counts and number of edges
@@ -88,7 +88,7 @@ func (dawg *Dawg) Write(wIn io.Writer) (int64, error) {
 		address   uint64
 	}
 
-	nodes := make([]node, dawg.NumNodes(), dawg.NumNodes())
+	nodes := make([]node, d.NumNodes(), d.NumNodes())
 	var maxChar rune
 	for _, start := range edges {
 		if start.ch > maxChar {
@@ -98,7 +98,7 @@ func (dawg *Dawg) Write(wIn io.Writer) (int64, error) {
 	}
 
 	cbits := uint64(bits.Len(uint(maxChar)))
-	wbits := uint64(bits.Len(uint(dawg.NumAdded())))
+	wbits := uint64(bits.Len(uint(d.NumAdded())))
 
 	// let abits = 1
 	abits := uint64(1)
@@ -106,9 +106,9 @@ func (dawg *Dawg) Write(wIn io.Writer) (int64, error) {
 	for {
 		// position = 32 + 8 + 8 + encoded length of number of words, nodes, and edges
 		pos = 32 + 8 + 8
-		pos += unsignedLength(uint64(dawg.NumAdded())) * 8
-		pos += unsignedLength(uint64(dawg.NumNodes())) * 8
-		pos += unsignedLength(uint64(dawg.NumEdges())) * 8
+		pos += unsignedLength(uint64(d.NumAdded())) * 8
+		pos += unsignedLength(uint64(d.NumNodes())) * 8
+		pos += unsignedLength(uint64(d.NumEdges())) * 8
 
 		// for each node,
 		for i := range nodes {
@@ -145,19 +145,19 @@ func (dawg *Dawg) Write(wIn io.Writer) (int64, error) {
 	w.WriteBits(abits, 8)
 
 	// write number of words, nodes, and edges.
-	writeUnsigned(w, uint64(dawg.NumAdded()))
-	writeUnsigned(w, uint64(dawg.NumNodes()))
-	writeUnsigned(w, uint64(dawg.NumEdges()))
+	writeUnsigned(w, uint64(d.NumAdded()))
+	writeUnsigned(w, uint64(d.NumNodes()))
+	writeUnsigned(w, uint64(d.NumEdges()))
 
 	// for each edge,
 	i := -1
 	var firstEdge bool
 	for _, start := range edges {
 		// if its a different node, then write number of edges
-		end, _, _ := dawg.getEdge(start)
+		end, _, _ := d.getEdge(start)
 		for i < start.node {
 			i++
-			if dawg.final[i] {
+			if d.final[i] {
 				w.WriteBits(1, 1)
 			} else {
 				w.WriteBits(0, 1)
@@ -183,7 +183,7 @@ func (dawg *Dawg) Write(wIn io.Writer) (int64, error) {
 	// if there were no edges, then write out the first node
 	i++
 	if i < len(nodes) {
-		if dawg.final[i] {
+		if d.final[i] {
 			w.WriteBits(1, 1)
 		} else {
 			w.WriteBits(0, 1)
@@ -225,7 +225,7 @@ func Read(f io.ReaderAt, offset int64) (Finder, error) {
 	firstNodeOffset := r.Tell()
 	hasEmpty := r.ReadBits(1) == 1
 	wbits := int64(bits.Len(uint(numAdded)))
-	dawg := &Dawg{
+	dawg := &dawg{
 		finished:        true,
 		numAdded:        numAdded,
 		numNodes:        numNodes,
@@ -243,27 +243,27 @@ func Read(f io.ReaderAt, offset int64) (Finder, error) {
 }
 
 // Close ...
-func (dawg *Dawg) Close() error {
-	if closer, ok := dawg.r.(io.Closer); ok {
+func (d *dawg) Close() error {
+	if closer, ok := d.r.(io.Closer); ok {
 		return closer.Close()
 	}
 	return nil
 }
 
-func (dawg *Dawg) getEdge(eStart edgeStart) (edgeEnd, bool, bool) {
+func (d *dawg) getEdge(eStart edgeStart) (edgeEnd, bool, bool) {
 	var edgeEnd edgeEnd
 	var final, ok bool
-	if dawg.numEdges == 0 {
+	if d.numEdges == 0 {
 		// do nothing
-	} else if dawg.r == nil {
-		edgeEnd, ok = dawg.edges[eStart]
-		final = dawg.final[edgeEnd.node]
+	} else if d.r == nil {
+		edgeEnd, ok = d.edges[eStart]
+		final = d.final[edgeEnd.node]
 	} else {
-		r := newBitSeeker(dawg.r)
+		r := newBitSeeker(d.r)
 		pos := int64(eStart.node)
 		if pos == 0 {
 			// its the first node
-			pos = dawg.firstNodeOffset
+			pos = d.firstNodeOffset
 		}
 
 		r.Seek(pos, 0)
@@ -276,20 +276,20 @@ func (dawg *Dawg) getEdge(eStart edgeStart) (edgeEnd, bool, bool) {
 
 		pos = r.Tell()
 		bsearch(int(numEdges), func(i int) int {
-			seekTo := pos + int64(i)*int64(dawg.cbits+dawg.wbits+dawg.abits)
+			seekTo := pos + int64(i)*int64(d.cbits+d.wbits+d.abits)
 			if i > 0 {
-				seekTo -= dawg.wbits
+				seekTo -= d.wbits
 			}
 
 			r.Seek(seekTo, 0)
-			ch := rune(r.ReadBits(dawg.cbits))
+			ch := rune(r.ReadBits(d.cbits))
 			if ch == eStart.ch {
 				if i > 0 {
-					edgeEnd.count = int(r.ReadBits(dawg.wbits))
+					edgeEnd.count = int(r.ReadBits(d.wbits))
 				} else {
 					edgeEnd.count = nodeFinal
 				}
-				edgeEnd.node = int(r.ReadBits(dawg.abits))
+				edgeEnd.node = int(r.ReadBits(d.abits))
 				r.Seek(int64(edgeEnd.node), 0)
 				final = r.ReadBits(1) == 1
 				ok = true
@@ -313,13 +313,13 @@ type edgeResult struct {
 	node  int
 }
 
-func (dawg *Dawg) getNode(node int) nodeResult {
+func (d *dawg) getNode(node int) nodeResult {
 	var result nodeResult
-	r := newBitSeeker(dawg.r)
+	r := newBitSeeker(d.r)
 	pos := int64(node)
 	if pos == 0 {
 		// its the first node
-		pos = dawg.firstNodeOffset
+		pos = d.firstNodeOffset
 	}
 
 	r.Seek(pos, 0)
@@ -334,14 +334,14 @@ func (dawg *Dawg) getNode(node int) nodeResult {
 	result.final = nodeFinal == 1
 
 	for i := uint64(0); i < numEdges; i++ {
-		ch := r.ReadBits(int64(dawg.cbits))
+		ch := r.ReadBits(int64(d.cbits))
 		var count uint64
 		if i > 0 {
-			count = r.ReadBits(int64(dawg.wbits))
+			count = r.ReadBits(int64(d.wbits))
 		} else {
 			count = nodeFinal
 		}
-		address := r.ReadBits(int64(dawg.abits))
+		address := r.ReadBits(int64(d.abits))
 		result.edges = append(result.edges, edgeResult{
 			ch:    rune(ch),
 			count: int(count),
@@ -351,13 +351,13 @@ func (dawg *Dawg) getNode(node int) nodeResult {
 	return result
 }
 
-func (dawg *Dawg) getEdges() []edgeStart {
-	if dawg.r != nil {
+func (d *dawg) getEdges() []edgeStart {
+	if d.r != nil {
 		log.Panicf("Not implemented")
 	}
 
 	var edges []edgeStart
-	for edge := range dawg.edges {
+	for edge := range d.edges {
 		edges = append(edges, edge)
 	}
 
