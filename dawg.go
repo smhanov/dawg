@@ -83,25 +83,27 @@ type Finder interface {
 	// Output a human-readable description of the dawg to stdout
 	Print()
 
-	// Close the dawg that was read in. After this, it is no longer
+	// Close the dawg that was opened with Load(). After this, it is no longer
 	// accessible.
 	Close() error
+
+	// Save to a writer
+	Write(w io.Writer) (int64, error)
+
+	// Save to a file
+	Save(filename string) (int64, error)
 }
 
 // Builder is the interface for creating a new Dawg. Use New() to create it.
 type Builder interface {
-	// Returns true if the word can be added.
-	CanAdd(word string) bool
-
 	// Add the word to the dawg
 	Add(wordIn string)
 
+	// Returns true if the word can be added.
+	CanAdd(word string) bool
+
 	// Complete the dawg and return a Finder.
 	Finish() Finder
-
-	// These may be called after Finish() to store the dawg to disk.
-	Write(w io.Writer) (int64, error)
-	Save(filename string) (int64, error)
 }
 
 const rootNode = 0

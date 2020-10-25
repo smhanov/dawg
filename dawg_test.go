@@ -18,13 +18,13 @@ func testsWords() []string {
 	}
 }
 
-func createDawg(words []string) (dawg.Builder, dawg.Finder) {
+func createDawg(words []string) dawg.Finder {
 	dawg := dawg.New()
 	for _, word := range words {
 		dawg.Add(word)
 	}
 
-	return dawg, dawg.Finish()
+	return dawg.Finish()
 }
 
 func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
@@ -48,12 +48,12 @@ func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
 }
 
 func runTest(t *testing.T, words []string) dawg.Finder {
-	builder, finder := createDawg(words)
+	finder := createDawg(words)
 	//finder.Print()
 	testDawg(t, finder, words)
 
 	// Now try the disk version
-	_, err := builder.Save("test.dawg")
+	_, err := finder.Save("test.dawg")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -102,7 +102,7 @@ func Test5Words(t *testing.T) {
 }
 
 func testPrefixes(t *testing.T, words []string, word string, shouldbe []dawg.FindResult) {
-	_, finder := createDawg(words)
+	finder := createDawg(words)
 
 	results := finder.FindAllPrefixesOf(word)
 
@@ -184,7 +184,7 @@ func TestEnumerate(t *testing.T) {
 		"zzz",
 	}
 
-	_, finder := createDawg(words)
+	finder := createDawg(words)
 	finder.Print()
 
 	total := 0
