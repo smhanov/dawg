@@ -7,7 +7,6 @@ import (
 	"log"
 	"math/bits"
 	"os"
-	"sort"
 
 	"golang.org/x/exp/mmap"
 )
@@ -78,23 +77,16 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 
 	w := newBitWriter(wIn)
 
-	// get all the edges
-	edges := d.getEdges()
-
 	// get maximum character and calculate cbits
 	// record node addresses, calculate counts and number of edges
-	type node struct {
-		edgeCount uint64
-		address   uint64
-	}
-
-	nodes := make([]node, d.NumNodes(), d.NumNodes())
+	addresses := make([]uint64, d.NumNodes(), d.NumNodes())
 	var maxChar rune
-	for _, start := range edges {
-		if start.ch > maxChar {
-			maxChar = start.ch
+	for _, node := range d.nodes {
+		for _, edge := range node.edges {
+			if edge.ch > maxChar {
+				maxChar = edge.ch
+			}
 		}
-		nodes[start.node].edgeCount++
 	}
 
 	cbits := uint64(bits.Len(uint(maxChar)))
@@ -111,22 +103,26 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 		pos += unsignedLength(uint64(d.NumEdges())) * 8
 
 		// for each node,
-		for i := range nodes {
+		for i := range addresses {
+			node := d.nodes[i]
+
 			// record its position
-			nodes[i].address = pos
+			addresses[i] = pos
 
 			// final bit
 			pos++
 
 			// add number of edges
 			pos++ // edgecount == 1 bit
-			if nodes[i].edgeCount != 1 {
-				pos += unsignedLength(nodes[i].edgeCount) * 8
+
+			numEdges := uint64(len(node.edges))
+			if numEdges != 1 {
+				pos += unsignedLength(numEdges) * 8
 			}
 
 			// add #edges * (cbits + wbits + abits)
-			if nodes[i].edgeCount > 0 {
-				pos += nodes[i].edgeCount*(cbits+wbits+abits) - wbits
+			if numEdges > 0 {
+				pos += numEdges*(cbits+wbits+abits) - wbits
 			}
 		}
 
@@ -150,46 +146,32 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 	writeUnsigned(w, uint64(d.NumEdges()))
 
 	// for each edge,
-	i := -1
-	var firstEdge bool
-	for _, start := range edges {
-		// if its a different node, then write number of edges
-		end, _, _ := d.getEdge(start)
-		for i < start.node {
-			i++
-			if d.final[i] {
-				w.WriteBits(1, 1)
-			} else {
-				w.WriteBits(0, 1)
-			}
-			if nodes[i].edgeCount == 1 {
-				w.WriteBits(1, 1)
-			} else {
-				w.WriteBits(0, 1)
-				writeUnsigned(w, nodes[i].edgeCount)
-			}
-			firstEdge = true
-		}
-
-		// write character, address
-		w.WriteBits(uint64(start.ch), int(cbits))
-		if !firstEdge {
-			w.WriteBits(uint64(end.count), int(wbits))
-		}
-		w.WriteBits(nodes[end.node].address, int(abits))
-		firstEdge = false
-	}
-
-	// if there were no edges, then write out the first node
-	i++
-	if i < len(nodes) {
-		if d.final[i] {
+	for i := range addresses {
+		node := d.nodes[i]
+		count := 0
+		if node.final {
+			count++
 			w.WriteBits(1, 1)
 		} else {
 			w.WriteBits(0, 1)
 		}
-		w.WriteBits(0, 1)
-		writeUnsigned(w, 0)
+
+		if len(node.edges) == 1 {
+			w.WriteBits(1, 1)
+		} else {
+			w.WriteBits(0, 1)
+			writeUnsigned(w, uint64(len(node.edges)))
+		}
+
+		for index, edge := range node.edges {
+			// write character, address
+			w.WriteBits(uint64(edge.ch), int(cbits))
+			if index > 0 {
+				w.WriteBits(uint64(count), int(wbits))
+			}
+			w.WriteBits(addresses[edge.node], int(abits))
+			count += d.nodes[edge.node].count
+		}
 	}
 
 	w.Flush()
@@ -253,12 +235,7 @@ func (d *dawg) Close() error {
 func (d *dawg) getEdge(eStart edgeStart) (edgeEnd, bool, bool) {
 	var edgeEnd edgeEnd
 	var final, ok bool
-	if d.numEdges == 0 {
-		// do nothing
-	} else if d.r == nil {
-		edgeEnd, ok = d.edges[eStart]
-		final = d.final[edgeEnd.node]
-	} else {
+	if d.numEdges > 0 {
 		r := newBitSeeker(d.r)
 		pos := int64(eStart.node)
 		if pos == 0 {
@@ -349,26 +326,6 @@ func (d *dawg) getNode(node int) nodeResult {
 		})
 	}
 	return result
-}
-
-func (d *dawg) getEdges() []edgeStart {
-	if d.r != nil {
-		log.Panicf("Not implemented")
-	}
-
-	var edges []edgeStart
-	for edge := range d.edges {
-		edges = append(edges, edge)
-	}
-
-	sort.Slice(edges, func(a, b int) bool {
-		if edges[a].node != edges[b].node {
-			return edges[a].node < edges[b].node
-		}
-		return edges[a].ch < edges[b].ch
-	})
-
-	return edges
 }
 
 // DumpFile prints out the file

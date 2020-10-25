@@ -106,6 +106,12 @@ type Builder interface {
 
 const rootNode = 0
 
+type node struct {
+	final bool
+	count int
+	edges []edgeStart
+}
+
 // dawg represents a Directed Acyclic Word Graph
 type dawg struct {
 	// these are erased after we finish building
@@ -113,7 +119,7 @@ type dawg struct {
 	nextID         int
 	uncheckedNodes []uncheckedNode
 	minimizedNodes map[string]int
-	names          map[int][]edgeStart
+	nodes          map[int]*node
 
 	// if read from a file, this is set
 	r    io.ReaderAt
@@ -124,13 +130,10 @@ type dawg struct {
 	numAdded        int
 	numNodes        int
 	numEdges        int
-	hbits           int64 // bits to represent hash value
 	cbits           int64 // bits to represent character value
 	abits           int64 // bits to represent node address
 	wbits           int64 // bits to represent number of words / counts
 	firstNodeOffset int64 // first node offset in bits in the file
-	edges           map[edgeStart]edgeEnd
-	final           map[int]bool // is node final?
 	hasEmptyWord    bool
 }
 
@@ -139,9 +142,9 @@ func New() Builder {
 	return &dawg{
 		nextID:         1,
 		minimizedNodes: make(map[string]int),
-		names:          make(map[int][]edgeStart),
-		edges:          make(map[edgeStart]edgeEnd),
-		final:          make(map[int]bool),
+		nodes: map[int]*node{
+			0: {count: -1},
+		},
 	}
 }
 
@@ -208,14 +211,11 @@ func (d *dawg) Finish() Finder {
 		d.minimize(0)
 
 		d.numNodes = len(d.minimizedNodes) + 1
-		d.numEdges = len(d.edges)
 
 		// Fill in the counts
-		cache := make(map[int]int)
-		d.calculateSkipped(cache, rootNode)
+		d.calculateSkipped(rootNode)
 
 		// no longer need the names.
-		d.names = nil
 		d.uncheckedNodes = nil
 		d.minimizedNodes = nil
 		d.lastWord = nil
@@ -225,9 +225,6 @@ func (d *dawg) Finish() Finder {
 		var buffer bytes.Buffer
 		d.size, _ = d.Write(&buffer)
 		d.r = bytes.NewReader(buffer.Bytes())
-
-		d.edges = nil
-		d.final = nil
 	}
 
 	finder, _ := Read(d.r, 0)
@@ -242,27 +239,20 @@ func (d *dawg) renumber() {
 	remap := make(map[int]int)
 	remap[rootNode] = rootNode
 
-	for start, end := range d.edges {
-		if _, ok := remap[start.node]; !ok {
-			remap[start.node] = len(remap)
-		}
-		if _, ok := remap[end.node]; !ok {
-			remap[end.node] = len(remap)
+	for id := range d.nodes {
+		if _, ok := remap[id]; !ok {
+			remap[id] = len(remap)
 		}
 	}
 
-	edges := make(map[edgeStart]edgeEnd)
-	for start, end := range d.edges {
-		edges[edgeStart{remap[start.node], start.ch}] = edgeEnd{remap[end.node], end.count}
+	nodes := make(map[int]*node)
+	for id, node := range d.nodes {
+		nodes[remap[id]] = node
+		for i := range node.edges {
+			node.edges[i].node = remap[node.edges[i].node]
+		}
 	}
-	d.edges = edges
-
-	final := make(map[int]bool)
-	for node, isFinal := range d.final {
-		final[remap[node]] = isFinal
-	}
-
-	d.final = final
+	d.nodes = nodes
 }
 
 // Print will print all edges to the standard output
@@ -390,17 +380,19 @@ func (d *dawg) newNode() int {
 	return d.nextID - 1
 }
 
-func (d *dawg) nameOf(node int) string {
+func (d *dawg) nameOf(nodeid int) string {
+	node := d.nodes[nodeid]
+
 	// node name is id_ch:id... for each child
 	buff := bytes.Buffer{}
-	for _, edge := range d.names[node] {
+	for _, edge := range node.edges {
 		buff.WriteByte('_')
 		buff.WriteRune(edge.ch)
 		buff.WriteByte(':')
 		buff.WriteString(strconv.Itoa(edge.node))
 	}
 
-	if d.final[node] {
+	if node.final {
 		buff.WriteByte('!')
 	}
 
@@ -408,7 +400,7 @@ func (d *dawg) nameOf(node int) string {
 }
 
 func (d *dawg) setFinal(node int) {
-	d.final[node] = true
+	d.nodes[node].final = true
 	if node == rootNode {
 		d.hasEmptyWord = true
 	}
@@ -416,70 +408,65 @@ func (d *dawg) setFinal(node int) {
 
 func (d *dawg) addChild(parent int, ch rune, child int) {
 	//log.Printf("Addchild %v(%v)->%v", parent, string(ch), child)
-	d.names[parent] = append(d.names[parent], edgeStart{child, ch})
-	d.edges[edgeStart{parent, ch}] = edgeEnd{node: child}
-}
-
-func (d *dawg) getChild(parent int, ch rune) edgeEnd {
-	return d.edges[edgeStart{parent, ch}]
+	d.numEdges++
+	if d.nodes[child] == nil {
+		d.nodes[child] = &node{
+			count: -1,
+		}
+	}
+	node := d.nodes[parent]
+	if len(node.edges) > 0 && ch <= node.edges[len(node.edges)-1].ch {
+		log.Panic("Not strictly increasing")
+	}
+	node.edges = append(node.edges, edgeStart{child, ch})
 }
 
 func (d *dawg) replaceChild(parent int, ch rune, child int) {
-	start := edgeStart{parent, ch}
-	oldChild := d.edges[start].node
+	pnode := d.nodes[parent]
+	//TODO: should be bsearch
+	i := bsearch(len(pnode.edges), func(i int) int {
+		return int(pnode.edges[i].ch - ch)
+	})
+
+	if pnode.edges[i].ch != ch {
+		//for _, edge := range pnode.edges {
+		//	log.Printf("Edge %c %d", rune(edge.ch), edge.node)
+		//}
+		log.Panicf("Not found: %c", ch)
+	}
 
 	//log.Printf("ReplaceChild(%v:%v=>%v, %v:%v=>%v)",
-	//	parent, string(ch), oldChild,
+	//	parent, string(ch), pnode.edges[i].node,
 	//	parent, string(ch), child)
 
-	// remove all edges out of the old child to save memory
-	for _, eStart := range d.names[oldChild] {
-		//log.Printf("Remove old link %v:%v=>%v", oldChild, string(eStart.ch), eStart.node)
-		link := edgeStart{node: oldChild, ch: eStart.ch}
-		delete(d.edges, link)
-	}
+	delete(d.nodes, pnode.edges[i].node)
+	pnode.edges[i].node = child
 
-	delete(d.names, oldChild)
-	delete(d.final, oldChild)
-
-	// go through the names info of the parent and replace the item
-	name := d.names[parent]
-	for i := range name {
-		if name[i].ch == ch {
-			name[i].node = child
-			break
-		}
-	}
-
-	// finally, set the edge of the parent
-	d.edges[start] = edgeEnd{node: child}
 }
 
-func (d *dawg) calculateSkipped(cache map[int]int, node int) int {
+func (d *dawg) calculateSkipped(nodeid int) int {
 	// for each child of the node, calculate now many nodes
 	// are skipped over by following that child. This is the
 	// sum of all skipped-over counts of its previous siblings.
 
 	// returns the number of leaves reachable from the node.
-	if count, ok := cache[node]; ok {
-		return count
+	node := d.nodes[nodeid]
+	if node.count >= 0 {
+		return node.count
 	}
-
-	edges := d.names[node]
 
 	numReachable := 0
 
-	if d.final[node] {
+	if node.final {
 		numReachable++
 	}
 
-	for _, eStart := range edges {
-		// if it marks the final node, then add one
-		d.setCount(node, eStart.ch, numReachable)
-		numReachable += d.calculateSkipped(cache, eStart.node)
+	for _, edge := range node.edges {
+		numReachable += d.calculateSkipped(edge.node)
 	}
 
-	cache[node] = numReachable
+	node.count = numReachable
+
 	return numReachable
 }
 
@@ -516,13 +503,6 @@ func (d *dawg) enumerate(index int, address int, runes []rune, fn EnumFn) Enumer
 	}
 
 	return result
-}
-
-func (d *dawg) setCount(node int, ch rune, count int) {
-	start := edgeStart{node: node, ch: ch}
-	end := d.edges[start]
-	end.count = count
-	d.edges[start] = end
 }
 
 func min(a, b int) int {
