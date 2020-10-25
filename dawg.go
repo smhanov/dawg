@@ -227,6 +227,7 @@ func (d *dawg) Finish() Finder {
 		var buffer bytes.Buffer
 		d.size, _ = d.Write(&buffer)
 		d.r = bytes.NewReader(buffer.Bytes())
+		d.nodes = nil
 	}
 
 	finder, _ := Read(d.r, 0)
