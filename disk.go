@@ -21,23 +21,29 @@ import (
 - let wbits be the number of bits to represent the total number of words in the file.
 - for each node:
 	- 1 bit: is node final?
-	- 1 bit: single edge?
-	- if !single edge:
-		7code: number of edges
-	- for each edge:
-		cbits: character
-		if this is not the first edge:
-			wbits: count
-		abits: location in bits of the node to jump to from start of file.
+	- 1 bit: fallthrough?
 
+	- if fallthrough
+		cbits: character
+	else:
+		1 bit: single edge?
+		- if !single edge:
+			7code: number of edges
+		- for each edge:
+			cbits: character
+			if this is not the first edge:
+				wbits: count
+			abits: location in bits of the node to jump to from start of file.
 
 We define 7code to be an unsigned that can be read the following way:
+
 result = 0
-loop {
+for {
 	data = next 8 bits
 	result = result << 7 | data & 0x7f
 	if data & 0x80 == 0 break
 }
+
 */
 
 // Save writes the dawg to disk. Returns the number of bytes written
@@ -63,6 +69,10 @@ func readUint32(r io.ReaderAt, at int64) uint32 {
 		(uint32(data[1]) << 16) |
 		(uint32(data[2]) << 8) |
 		(uint32(data[3]) << 0)
+}
+
+func (n *node) isFallthrough(id int) bool {
+	return len(n.edges) == 1 && n.edges[0].node == id+1
 }
 
 // Save writes the dawg to an io.Writer. Returns the number of bytes written
@@ -112,17 +122,24 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 			// final bit
 			pos++
 
-			// add number of edges
-			pos++ // edgecount == 1 bit
+			// fallthrough?
+			pos++
 
-			numEdges := uint64(len(node.edges))
-			if numEdges != 1 {
-				pos += unsignedLength(numEdges) * 8
-			}
+			if node.isFallthrough((i)) {
+				pos += cbits
+			} else {
+				// add number of edges
+				pos++ // singleEdge?
 
-			// add #edges * (cbits + wbits + abits)
-			if numEdges > 0 {
-				pos += numEdges*(cbits+wbits+abits) - wbits
+				numEdges := uint64(len(node.edges))
+				if numEdges != 1 {
+					pos += unsignedLength(numEdges) * 8
+				}
+
+				// add #edges * (cbits + wbits + abits)
+				if numEdges > 0 {
+					pos += numEdges*(cbits+wbits+abits) - wbits
+				}
 			}
 		}
 
@@ -156,21 +173,28 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 			w.WriteBits(0, 1)
 		}
 
-		if len(node.edges) == 1 {
+		if node.isFallthrough(i) {
 			w.WriteBits(1, 1)
+			w.WriteBits(uint64(node.edges[0].ch), int(cbits))
 		} else {
 			w.WriteBits(0, 1)
-			writeUnsigned(w, uint64(len(node.edges)))
-		}
 
-		for index, edge := range node.edges {
-			// write character, address
-			w.WriteBits(uint64(edge.ch), int(cbits))
-			if index > 0 {
-				w.WriteBits(uint64(count), int(wbits))
+			if len(node.edges) == 1 {
+				w.WriteBits(1, 1)
+			} else {
+				w.WriteBits(0, 1)
+				writeUnsigned(w, uint64(len(node.edges)))
 			}
-			w.WriteBits(addresses[edge.node], int(abits))
-			count += d.nodes[edge.node].count
+
+			for index, edge := range node.edges {
+				// write character, address
+				w.WriteBits(uint64(edge.ch), int(cbits))
+				if index > 0 {
+					w.WriteBits(uint64(count), int(wbits))
+				}
+				w.WriteBits(addresses[edge.node], int(abits))
+				count += d.nodes[edge.node].count
+			}
 		}
 	}
 
@@ -245,34 +269,46 @@ func (d *dawg) getEdge(eStart edgeStart) (edgeEnd, bool, bool) {
 
 		r.Seek(pos, 0)
 		nodeFinal := int(r.ReadBits(1))
-		singleEdge := r.ReadBits(1)
-		numEdges := uint64(1)
-		if singleEdge != 1 {
-			numEdges = readUnsigned(r)
-		}
+		fallthr := int(r.ReadBits(1))
 
-		pos = r.Tell()
-		bsearch(int(numEdges), func(i int) int {
-			seekTo := pos + int64(i)*int64(d.cbits+d.wbits+d.abits)
-			if i > 0 {
-				seekTo -= d.wbits
-			}
-
-			r.Seek(seekTo, 0)
+		if fallthr == 1 {
 			ch := rune(r.ReadBits(d.cbits))
 			if ch == eStart.ch {
-				if i > 0 {
-					edgeEnd.count = int(r.ReadBits(d.wbits))
-				} else {
-					edgeEnd.count = nodeFinal
-				}
-				edgeEnd.node = int(r.ReadBits(d.abits))
-				r.Seek(int64(edgeEnd.node), 0)
+				edgeEnd.count = nodeFinal
+				edgeEnd.node = int(r.Tell())
 				final = r.ReadBits(1) == 1
 				ok = true
 			}
-			return int(ch - eStart.ch)
-		})
+		} else {
+			singleEdge := r.ReadBits(1)
+			numEdges := uint64(1)
+			if singleEdge != 1 {
+				numEdges = readUnsigned(r)
+			}
+
+			pos = r.Tell()
+			bsearch(int(numEdges), func(i int) int {
+				seekTo := pos + int64(i)*int64(d.cbits+d.wbits+d.abits)
+				if i > 0 {
+					seekTo -= d.wbits
+				}
+
+				r.Seek(seekTo, 0)
+				ch := rune(r.ReadBits(d.cbits))
+				if ch == eStart.ch {
+					if i > 0 {
+						edgeEnd.count = int(r.ReadBits(d.wbits))
+					} else {
+						edgeEnd.count = nodeFinal
+					}
+					edgeEnd.node = int(r.ReadBits(d.abits))
+					r.Seek(int64(edgeEnd.node), 0)
+					final = r.ReadBits(1) == 1
+					ok = true
+				}
+				return int(ch - eStart.ch)
+			})
+		}
 	}
 
 	return edgeEnd, final, ok
@@ -301,29 +337,39 @@ func (d *dawg) getNode(node int) nodeResult {
 
 	r.Seek(pos, 0)
 	nodeFinal := r.ReadBits(1)
-	singleEdge := r.ReadBits(1)
-	numEdges := uint64(1)
-	if singleEdge != 1 {
-		numEdges = readUnsigned(r)
-	}
+	fallthr := r.ReadBits(1)
 
 	result.node = node
 	result.final = nodeFinal == 1
 
-	for i := uint64(0); i < numEdges; i++ {
-		ch := r.ReadBits(int64(d.cbits))
-		var count uint64
-		if i > 0 {
-			count = r.ReadBits(int64(d.wbits))
-		} else {
-			count = nodeFinal
-		}
-		address := r.ReadBits(int64(d.abits))
+	if fallthr == 1 {
 		result.edges = append(result.edges, edgeResult{
-			ch:    rune(ch),
-			count: int(count),
-			node:  int(address),
+			ch:    rune(r.ReadBits(d.cbits)),
+			count: int(nodeFinal),
+			node:  int(r.Tell()),
 		})
+	} else {
+		singleEdge := r.ReadBits(1)
+		numEdges := uint64(1)
+		if singleEdge != 1 {
+			numEdges = readUnsigned(r)
+		}
+
+		for i := uint64(0); i < numEdges; i++ {
+			ch := r.ReadBits(int64(d.cbits))
+			var count uint64
+			if i > 0 {
+				count = r.ReadBits(int64(d.wbits))
+			} else {
+				count = nodeFinal
+			}
+			address := r.ReadBits(int64(d.abits))
+			result.edges = append(result.edges, edgeResult{
+				ch:    rune(ch),
+				count: int(count),
+				node:  int(address),
+			})
+		}
 	}
 	return result
 }
@@ -353,12 +399,21 @@ func DumpFile(f io.ReaderAt) {
 	for i := 0; i < int(nodeCount); i++ {
 		at := r.Tell()
 		final := r.ReadBits(1)
+		fallthr := r.ReadBits(1)
+
+		if fallthr == 1 {
+			ch := r.ReadBits(int64(cbits))
+			fmt.Printf("[%08x] Node final=%d ch='%c' (fallthrough)\n", at, final, rune(ch))
+			continue
+		}
+
 		singleEdge := r.ReadBits(1)
 		edges := uint64(1)
 		if singleEdge != 1 {
 			edges = readUnsigned(r)
 		}
-		fmt.Printf("[%08x] Node final=%d has %d edges\n", r.Tell()-int64(unsignedLength(edges)*8)-1, final, edges)
+
+		fmt.Printf("[%08x] Node final=%d has %d edges\n", at, final, edges)
 
 		for j := uint64(0); j < edges; j++ {
 			at = r.Tell()

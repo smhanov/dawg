@@ -238,15 +238,26 @@ func (d *dawg) Finish() Finder {
 func (d *dawg) renumber() {
 	// after minimization, nodes have been removed so there are gaps in the node IDs.
 	// Renumber them all to be consecutive.
+	// process them in a depth-first order so that runs of characters
+	// will appear in consecutive nodes, which is more efficient for encoding.
 
 	remap := make(map[int]int)
-	remap[rootNode] = rootNode
 
-	for id := range d.nodes {
-		if _, ok := remap[id]; !ok {
-			remap[id] = len(remap)
+	var process func(id int)
+
+	process = func(id int) {
+		if _, ok := remap[id]; ok {
+			return
+		}
+
+		remap[id] = len(remap)
+		node := d.nodes[id]
+		for _, edge := range node.edges {
+			process(edge.node)
 		}
 	}
+
+	process(rootNode)
 
 	nodes := make(map[int]*node)
 	for id, node := range d.nodes {
