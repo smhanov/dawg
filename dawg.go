@@ -544,7 +544,6 @@ func (d *dawg) atIndex(nodeNumber, atIndex, targetIndex int, runes []rune) (stri
 	}
 
 	next := bsearch(len(node.edges), func(i int) int {
-		//log.Printf("Check node %x:%d skip=%d against %d", nodeNumber, i, atIndex+node.edges[i].count, targetIndex)
 		return atIndex + node.edges[i].count - targetIndex
 	})
 

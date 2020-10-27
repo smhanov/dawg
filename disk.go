@@ -29,10 +29,11 @@ import (
 		1 bit: single edge?
 		- if !single edge:
 			7code: number of edges
+			log(wbits): nskip (number of bits in skip field)
 		- for each edge:
 			cbits: character
 			if this is not the first edge:
-				wbits: count
+				nskip: count
 			abits: location in bits of the node to jump to from start of file.
 
 We define 7code to be an unsigned that can be read the following way:
@@ -101,6 +102,7 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 
 	cbits := uint64(bits.Len(uint(maxChar)))
 	wbits := uint64(bits.Len(uint(d.NumAdded())))
+	nskiplen := uint64(bits.Len(uint(wbits)))
 
 	// let abits = 1
 	abits := uint64(1)
@@ -132,13 +134,28 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 				pos++ // singleEdge?
 
 				numEdges := uint64(len(node.edges))
+
+				// find maximum value of skip
+
+				skip := 0
+				if node.final {
+					skip = 1
+				}
+
+				for _, edge := range node.edges {
+					skip += d.nodes[edge.node].count
+				}
+
+				nskipbits := uint64(bits.Len(uint(skip)))
+
 				if numEdges != 1 {
 					pos += unsignedLength(numEdges) * 8
+					pos += nskiplen
 				}
 
 				// add #edges * (cbits + wbits + abits)
 				if numEdges > 0 {
-					pos += numEdges*(cbits+wbits+abits) - wbits
+					pos += numEdges*(cbits+nskipbits+abits) - nskipbits
 				}
 			}
 		}
@@ -178,19 +195,30 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 			w.WriteBits(uint64(node.edges[0].ch), int(cbits))
 		} else {
 			w.WriteBits(0, 1)
+			skip := 0
+			if node.final {
+				skip = 1
+			}
+
+			for _, edge := range node.edges {
+				skip += d.nodes[edge.node].count
+			}
+
+			nskipbits := uint64(bits.Len(uint(skip)))
 
 			if len(node.edges) == 1 {
 				w.WriteBits(1, 1)
 			} else {
 				w.WriteBits(0, 1)
 				writeUnsigned(w, uint64(len(node.edges)))
+				w.WriteBits(nskipbits, int(nskiplen))
 			}
 
 			for index, edge := range node.edges {
 				// write character, address
 				w.WriteBits(uint64(edge.ch), int(cbits))
 				if index > 0 {
-					w.WriteBits(uint64(count), int(wbits))
+					w.WriteBits(uint64(count), int(nskipbits))
 				}
 				w.WriteBits(addresses[edge.node], int(abits))
 				count += d.nodes[edge.node].count
@@ -282,22 +310,25 @@ func (d *dawg) getEdge(eStart edgeStart) (edgeEnd, bool, bool) {
 		} else {
 			singleEdge := r.ReadBits(1)
 			numEdges := uint64(1)
+			nskiplen := int64(bits.Len(uint(d.wbits)))
+			nskip := int64(0)
 			if singleEdge != 1 {
 				numEdges = readUnsigned(r)
+				nskip = int64(r.ReadBits(nskiplen))
 			}
 
 			pos = r.Tell()
 			bsearch(int(numEdges), func(i int) int {
-				seekTo := pos + int64(i)*int64(d.cbits+d.wbits+d.abits)
+				seekTo := pos + int64(i)*int64(d.cbits+nskip+d.abits)
 				if i > 0 {
-					seekTo -= d.wbits
+					seekTo -= nskip
 				}
 
 				r.Seek(seekTo, 0)
 				ch := rune(r.ReadBits(d.cbits))
 				if ch == eStart.ch {
 					if i > 0 {
-						edgeEnd.count = int(r.ReadBits(d.wbits))
+						edgeEnd.count = int(r.ReadBits(nskip))
 					} else {
 						edgeEnd.count = nodeFinal
 					}
@@ -349,17 +380,21 @@ func (d *dawg) getNode(node int) nodeResult {
 			node:  int(r.Tell()),
 		})
 	} else {
+		nskiplen := int64(bits.Len(uint(d.wbits)))
+		nskip := int64(0)
+
 		singleEdge := r.ReadBits(1)
 		numEdges := uint64(1)
 		if singleEdge != 1 {
 			numEdges = readUnsigned(r)
+			nskip = int64(r.ReadBits(nskiplen))
 		}
 
 		for i := uint64(0); i < numEdges; i++ {
 			ch := r.ReadBits(int64(d.cbits))
 			var count uint64
 			if i > 0 {
-				count = r.ReadBits(int64(d.wbits))
+				count = r.ReadBits(int64(nskip))
 			} else {
 				count = nodeFinal
 			}
@@ -396,6 +431,8 @@ func DumpFile(f io.ReaderAt) {
 	edgeCount := readUnsigned(r)
 	fmt.Printf("[%08x] EdgeCount=%v\n", r.Tell()-int64(unsignedLength(edgeCount)*8), edgeCount)
 
+	nskiplen := bits.Len(uint(wbits))
+
 	for i := 0; i < int(nodeCount); i++ {
 		at := r.Tell()
 		final := r.ReadBits(1)
@@ -409,18 +446,20 @@ func DumpFile(f io.ReaderAt) {
 
 		singleEdge := r.ReadBits(1)
 		edges := uint64(1)
+		nskip := uint64(0)
 		if singleEdge != 1 {
 			edges = readUnsigned(r)
+			nskip = r.ReadBits(int64(nskiplen))
 		}
 
-		fmt.Printf("[%08x] Node final=%d has %d edges\n", at, final, edges)
+		fmt.Printf("[%08x] Node final=%d has %d edges, skipfieldlen=%d\n", at, final, edges, nskip)
 
 		for j := uint64(0); j < edges; j++ {
 			at = r.Tell()
 			ch := r.ReadBits(int64(cbits))
 			var count uint64
 			if j > 0 {
-				count = r.ReadBits(int64(wbits))
+				count = r.ReadBits(int64(nskip))
 			} else {
 				count = final
 			}
