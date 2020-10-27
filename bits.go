@@ -78,52 +78,44 @@ var maskTop = []byte{
 // BitSeeker reads bits from a given offset in bits
 type bitSeeker struct {
 	io.ReaderAt
-	p int64
+	p      int64
+	buffer []byte
 }
 
 // NewBitSeeker creates a new bitreaderat
 func newBitSeeker(r io.ReaderAt) *bitSeeker {
-	return &bitSeeker{r, 0}
+	return &bitSeeker{r, 0, make([]byte, 1, 1)}
+}
+
+func (r *bitSeeker) nextByte() byte {
+	r.ReadAt(r.buffer, r.p>>3)
+	return r.buffer[0]
 }
 
 func (r *bitSeeker) ReadBits(n int64) uint64 {
-	bytes := make([]byte, 1)
-	if r.p%8+n <= 8 {
-		if _, err := r.ReadAt(bytes, r.p/8); err != nil {
-			log.Panic(err)
-		}
-		ret := uint64((bytes[0] & maskTop[r.p%8]) >> (8 - r.p%8 - n))
+	if r.p&7+n <= 8 {
+		ret := uint64((r.nextByte() & maskTop[r.p&7]) >> (8 - r.p&7 - n))
 		r.p += n
 		return ret
 	}
 
 	// case 2: bits lie incompletely in the given byte
 	var result uint64
-	if _, err := r.ReadAt(bytes, r.p/8); err != nil {
-		log.Panic(err)
-	}
+	result = uint64((r.nextByte() & maskTop[r.p&7]))
 
-	result = uint64((bytes[0] & maskTop[r.p%8]))
-
-	l := 8 - r.p%8
+	l := 8 - r.p&7
 	r.p += l
 	n -= l
 
 	for n >= 8 {
-		if _, err := r.ReadAt(bytes, r.p/8); err != nil {
-			log.Panic(err)
-		}
-		result = (result << 8) | uint64(bytes[0])
+		result = (result << 8) | uint64(r.nextByte())
 		r.p += 8
 		n -= 8
 	}
 
 	if n > 0 {
-		if _, err := r.ReadAt(bytes, r.p/8); err != nil {
-			log.Panic(err)
-		}
 		r.p += n
-		result = (result << n) | uint64(bytes[0]>>(8-n))
+		result = (result << n) | uint64(r.nextByte()>>(8-n))
 	}
 
 	return result

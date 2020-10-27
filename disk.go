@@ -247,8 +247,11 @@ const edgesOffset = (32*4 + 8 + 8)
 // given io.ReaderAt
 func Read(f io.ReaderAt, offset int64) (Finder, error) {
 	size := readUint32(f, offset)
+	if offset != 0 {
+		f = io.NewSectionReader(f, offset, int64(size))
+	}
 
-	r := newBitSeeker(io.NewSectionReader(f, offset, int64(size)))
+	r := newBitSeeker(f)
 
 	r.Seek(32, 0)
 	cbits := r.ReadBits(8)
@@ -284,11 +287,10 @@ func (d *dawg) Close() error {
 	return nil
 }
 
-func (d *dawg) getEdge(eStart edgeStart) (edgeEnd, bool, bool) {
+func (d *dawg) getEdge(r *bitSeeker, eStart edgeStart) (edgeEnd, bool, bool) {
 	var edgeEnd edgeEnd
 	var final, ok bool
 	if d.numEdges > 0 {
-		r := newBitSeeker(d.r)
 		pos := int64(eStart.node)
 		if pos == 0 {
 			// its the first node
@@ -357,9 +359,8 @@ type edgeResult struct {
 	node  int
 }
 
-func (d *dawg) getNode(node int) nodeResult {
+func (d *dawg) getNode(r *bitSeeker, node int) nodeResult {
 	var result nodeResult
-	r := newBitSeeker(d.r)
 	pos := int64(node)
 	if pos == 0 {
 		// its the first node

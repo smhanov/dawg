@@ -287,6 +287,8 @@ func (d *dawg) FindAllPrefixesOf(input string) []FindResult {
 	var edgeEnd edgeEnd
 	var ok bool
 
+	r := newBitSeeker(d.r)
+
 	// for each character of the input
 	for pos, letter := range input {
 		// if the node is final, add a result
@@ -298,7 +300,7 @@ func (d *dawg) FindAllPrefixesOf(input string) []FindResult {
 		}
 
 		// check if there is an outgoing edge for the letter
-		edgeEnd, final, ok = d.getEdge(edgeStart{node: node, ch: letter})
+		edgeEnd, final, ok = d.getEdge(r, edgeStart{node: node, ch: letter})
 		if !ok {
 			return results
 		}
@@ -327,11 +329,12 @@ func (d *dawg) IndexOf(input string) int {
 	final := d.hasEmptyWord
 	var ok bool
 	var edgeEnd edgeEnd
+	r := newBitSeeker(d.r)
 
 	// for each character of the input
 	for _, letter := range input {
 		// check if there is an outgoing edge for the letter
-		edgeEnd, final, ok = d.getEdge(edgeStart{node: node, ch: letter})
+		edgeEnd, final, ok = d.getEdge(r, edgeStart{node: node, ch: letter})
 		//log.Printf("Follow %v:%v=>%v (ok=%v)", node, string(letter), edgeEnd.node, ok)
 		if !ok {
 			// not found
@@ -487,12 +490,13 @@ func (d *dawg) calculateSkipped(nodeid int) int {
 // Enumerate will call the given method, passing it every possible prefix of words in the index.
 // Return Continue to continue enumeration, Skip to skip this branch, or Stop to stop enumeration.
 func (d *dawg) Enumerate(fn EnumFn) {
-	d.enumerate(0, rootNode, nil, fn)
+	r := newBitSeeker(d.r)
+	d.enumerate(r, 0, rootNode, nil, fn)
 }
 
-func (d *dawg) enumerate(index int, address int, runes []rune, fn EnumFn) EnumerationResult {
+func (d *dawg) enumerate(r *bitSeeker, index int, address int, runes []rune, fn EnumFn) EnumerationResult {
 	// get the node and whether its final
-	node := d.getNode(address)
+	node := d.getNode(r, address)
 
 	// call the enum function on the runes
 	result := fn(index, runes, node.final)
@@ -510,7 +514,7 @@ func (d *dawg) enumerate(index int, address int, runes []rune, fn EnumFn) Enumer
 		// add ch to the runes
 		runes[l] = edge.ch
 		// recurse
-		result = d.enumerate(index+edge.count, edge.node, runes, fn)
+		result = d.enumerate(r, index+edge.count, edge.node, runes, fn)
 		if result == Stop {
 			break
 		}
@@ -531,13 +535,14 @@ func (d *dawg) AtIndex(index int) (string, error) {
 		return "", errors.New("invalid index")
 	}
 
+	r := newBitSeeker(d.r)
 	// start at first node and empty string
-	result, _ := d.atIndex(rootNode, 0, index, nil)
+	result, _ := d.atIndex(r, rootNode, 0, index, nil)
 	return result, nil
 }
 
-func (d *dawg) atIndex(nodeNumber, atIndex, targetIndex int, runes []rune) (string, bool) {
-	node := d.getNode(nodeNumber)
+func (d *dawg) atIndex(r *bitSeeker, nodeNumber, atIndex, targetIndex int, runes []rune) (string, bool) {
+	node := d.getNode(r, nodeNumber)
 	// if node is final and index matches, return it
 	if node.final && atIndex == targetIndex {
 		return string(runes), true
@@ -555,7 +560,7 @@ func (d *dawg) atIndex(nodeNumber, atIndex, targetIndex int, runes []rune) (stri
 	runes = append(runes, 0)
 	for i := next; i < len(node.edges); i++ {
 		runes[len(runes)-1] = node.edges[i].ch
-		if result, ok := d.atIndex(node.edges[i].node, atIndex+node.edges[i].count, targetIndex, runes); ok {
+		if result, ok := d.atIndex(r, node.edges[i].node, atIndex+node.edges[i].count, targetIndex, runes); ok {
 			return result, ok
 		}
 	}
