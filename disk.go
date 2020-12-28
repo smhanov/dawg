@@ -482,6 +482,11 @@ func writeUnsigned(w *bitWriter, n uint64) {
 		w.WriteBits((n>>14)&0x7f|0x80, 8)
 		w.WriteBits((n>>7)&0x7f|0x80, 8)
 		w.WriteBits(n&0x7f, 8)
+	} else if n < 0xfffffff {
+		w.WriteBits((n>>21)&0x7f|0x80, 8)
+		w.WriteBits((n>>14)&0x7f|0x80, 8)
+		w.WriteBits((n>>7)&0x7f|0x80, 8)
+		w.WriteBits(n&0x7f, 8)
 	} else {
 		// could go further
 		log.Panic("Not implemented")
@@ -507,6 +512,8 @@ func unsignedLength(n uint64) uint64 {
 		return 2
 	} else if n < 0x1fffff {
 		return 3
+	} else if n < 0xfffffff {
+		return 4
 	}
 	log.Panicf("Not implemented: %d", n)
 	return 0
