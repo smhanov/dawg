@@ -300,7 +300,7 @@ func (d *dawg) FindAllPrefixesOf(input string) []FindResult {
 		}
 
 		// check if there is an outgoing edge for the letter
-		edgeEnd, final, ok = d.getEdge(r, edgeStart{node: node, ch: letter})
+		edgeEnd, final, ok = d.getEdge(&r, edgeStart{node: node, ch: letter})
 		if !ok {
 			return results
 		}
@@ -334,7 +334,7 @@ func (d *dawg) IndexOf(input string) int {
 	// for each character of the input
 	for _, letter := range input {
 		// check if there is an outgoing edge for the letter
-		edgeEnd, final, ok = d.getEdge(r, edgeStart{node: node, ch: letter})
+		edgeEnd, final, ok = d.getEdge(&r, edgeStart{node: node, ch: letter})
 		//log.Printf("Follow %v:%v=>%v (ok=%v)", node, string(letter), edgeEnd.node, ok)
 		if !ok {
 			// not found
@@ -491,7 +491,7 @@ func (d *dawg) calculateSkipped(nodeid int) int {
 // Return Continue to continue enumeration, Skip to skip this branch, or Stop to stop enumeration.
 func (d *dawg) Enumerate(fn EnumFn) {
 	r := newBitSeeker(d.r)
-	d.enumerate(r, 0, rootNode, nil, fn)
+	d.enumerate(&r, 0, rootNode, nil, fn)
 }
 
 func (d *dawg) enumerate(r *bitSeeker, index int, address int, runes []rune, fn EnumFn) EnumerationResult {
@@ -537,7 +537,7 @@ func (d *dawg) AtIndex(index int) (string, error) {
 
 	r := newBitSeeker(d.r)
 	// start at first node and empty string
-	result, _ := d.atIndex(r, rootNode, 0, index, nil)
+	result, _ := d.atIndex(&r, rootNode, 0, index, nil)
 	return result, nil
 }
 

@@ -75,21 +75,28 @@ var maskTop = []byte{
 	0x00,
 }
 
+const BUFSIZE = 128
+
 // BitSeeker reads bits from a given offset in bits
 type bitSeeker struct {
 	io.ReaderAt
 	p      int64
-	buffer []byte
+	have   int64
+	buffer [BUFSIZE]byte
 }
 
 // NewBitSeeker creates a new bitreaderat
-func newBitSeeker(r io.ReaderAt) *bitSeeker {
-	return &bitSeeker{r, 0, make([]byte, 1, 1)}
+func newBitSeeker(r io.ReaderAt) bitSeeker {
+	return bitSeeker{ReaderAt: r, have: -BUFSIZE}
 }
 
 func (r *bitSeeker) nextByte() byte {
-	r.ReadAt(r.buffer, r.p>>3)
-	return r.buffer[0]
+	b := r.p >> 3
+	if b >= r.have+BUFSIZE || b < r.have {
+		r.ReadAt(r.buffer[0:BUFSIZE], b)
+		r.have = b
+	}
+	return r.buffer[b-r.have]
 }
 
 func (r *bitSeeker) ReadBits(n int64) uint64 {

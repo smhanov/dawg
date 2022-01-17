@@ -256,9 +256,9 @@ func Read(f io.ReaderAt, offset int64) (Finder, error) {
 	r.Seek(32, 0)
 	cbits := r.ReadBits(8)
 	abits := r.ReadBits(8)
-	numAdded := int(readUnsigned(r))
-	numNodes := int(readUnsigned(r))
-	numEdges := int(readUnsigned(r))
+	numAdded := int(readUnsigned(&r))
+	numNodes := int(readUnsigned(&r))
+	numEdges := int(readUnsigned(&r))
 	firstNodeOffset := r.Tell()
 	hasEmpty := r.ReadBits(1) == 1
 	wbits := int64(bits.Len(uint(numAdded)))
@@ -422,14 +422,14 @@ func DumpFile(f io.ReaderAt) {
 	abits := r.ReadBits(8)
 	fmt.Printf("[%08x] abits=%d\n", r.Tell()-8, cbits)
 
-	wordCount := readUnsigned(r)
+	wordCount := readUnsigned(&r)
 	fmt.Printf("[%08x] WordCount=%v\n", r.Tell()-int64(unsignedLength(wordCount)*8), wordCount)
 
-	nodeCount := readUnsigned(r)
+	nodeCount := readUnsigned(&r)
 	fmt.Printf("[%08x] NodeCount=%v\n", r.Tell()-int64(unsignedLength(nodeCount)*8), nodeCount)
 	wbits := bits.Len(uint(wordCount))
 
-	edgeCount := readUnsigned(r)
+	edgeCount := readUnsigned(&r)
 	fmt.Printf("[%08x] EdgeCount=%v\n", r.Tell()-int64(unsignedLength(edgeCount)*8), edgeCount)
 
 	nskiplen := bits.Len(uint(wbits))
@@ -449,7 +449,7 @@ func DumpFile(f io.ReaderAt) {
 		edges := uint64(1)
 		nskip := uint64(0)
 		if singleEdge != 1 {
-			edges = readUnsigned(r)
+			edges = readUnsigned(&r)
 			nskip = r.ReadBits(int64(nskiplen))
 		}
 
