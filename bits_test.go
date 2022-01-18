@@ -59,7 +59,7 @@ func TestBitReader(t *testing.T) {
 		t.Errorf("Expected 0x2950 got 0x%02x", data)
 	}
 
-	t.Logf("Passed TestBitWriter")
+	t.Logf("Done TestBitReader")
 }
 
 func TestBitReaderWriter(t *testing.T) {
