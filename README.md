@@ -34,3 +34,13 @@ After you have called Finish() on a Builder, you may choose to write it to disk 
 Save() function. The DAWG can then be opened again later using the Load() function.
 When opened from disk, no memory is used. The structure is accessed in-place on disk.
 
+## Benchmarks
+
+There are some benchmarks in this project:
+
+https://github.com/timurgarif/go-fsa-trie-bench
+
+The library is optimized to take less memory or no-memory if accessing a file. We easily beat all 
+the alternatives in this area, using only 520KB compared to others which take from 3.6MB to 32MB 
+to store the same dictionary. However, the tradeoff is that  the bit-level accesses cause it to 
+take 10X as along to lookup words. 
