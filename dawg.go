@@ -63,6 +63,9 @@ type Finder interface {
 	// Find all prefixes of the given string
 	FindAllPrefixesOf(input string) []FindResult
 
+	// Find all prefixes of the given string in the range min - max
+	FindRangePrefixesOf(input string, min int, max int) []FindResult
+
 	// Find the index of the given string
 	IndexOf(input string) int
 
@@ -276,7 +279,15 @@ func (d *dawg) Print() {
 
 // FindAllPrefixesOf returns all items in the dawg that are a prefix of the input string.
 // It will panic if the dawg is not finished.
+
 func (d *dawg) FindAllPrefixesOf(input string) []FindResult {
+	return d.FindRangePrefixesOf(input, 0, len(input))
+}
+
+// FindRangePrefixesOf return all items in the dawg that are a prefix of the input string and in the range min-max
+// It will panic if the dawg is not finished 
+ 
+func (d *dawg) FindRangePrefixesOf(input string, min int, max int) []FindResult {
 
 	d.checkFinished()
 
@@ -291,8 +302,8 @@ func (d *dawg) FindAllPrefixesOf(input string) []FindResult {
 
 	// for each character of the input
 	for pos, letter := range input {
-		// if the node is final, add a result
-		if final {
+		// if the node is final and in the min - max range, add a result
+		if pos >= min && pos <= max && final {
 			results = append(results, FindResult{
 				Word:  input[:pos],
 				Index: skipped,
