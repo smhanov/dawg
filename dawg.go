@@ -63,6 +63,9 @@ type Finder interface {
 	// Find all prefixes of the given string
 	FindAllPrefixesOf(input string) []FindResult
 
+	// Find string by given prefix
+	FindByPrefix(input string) string
+
 	// Find the index of the given string
 	IndexOf(input string) int
 
@@ -272,6 +275,42 @@ func (d *dawg) renumber() {
 // Print will print all edges to the standard output
 func (d *dawg) Print() {
 	DumpFile(d.r)
+}
+
+func (d *dawg) FindByPrefix(input string) string {
+	d.checkFinished()
+
+	//avoid alloc
+	wordSl := make([]rune, 0, len(input)*2)
+
+	r := newBitSeeker(d.r)
+	node := rootNode
+
+	for _, letter := range input {
+		edgeEnd, _, ok := d.getEdge(&r, edgeStart{node: node, ch: letter})
+		// not found
+		if !ok {
+			return string(wordSl)
+		}
+
+		node = edgeEnd.node
+		wordSl = append(wordSl, letter)
+	}
+
+	nodeResult := d.getNode(&r, node)
+
+	// for each edge
+	for {
+		iterateEdge := nodeResult.edges[0]
+		nodeResult = d.getNode(&r, iterateEdge.node)
+		wordSl = append(wordSl, iterateEdge.ch)
+
+		if nodeResult.final {
+			break
+		}
+	}
+
+	return string(wordSl)
 }
 
 // FindAllPrefixesOf returns all items in the dawg that are a prefix of the input string.
