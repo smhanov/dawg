@@ -61,7 +61,7 @@ func (d *dawg) Save(filename string) (int64, error) {
 }
 
 func readUint32(r io.ReaderAt, at int64) uint32 {
-	data := make([]byte, 4, 4)
+	data := make([]byte, 4)
 	_, err := r.ReadAt(data, at)
 	if err != nil {
 		log.Panic(err)
@@ -90,7 +90,7 @@ func (d *dawg) Write(wIn io.Writer) (int64, error) {
 
 	// get maximum character and calculate cbits
 	// record node addresses, calculate counts and number of edges
-	addresses := make([]uint64, d.NumNodes(), d.NumNodes())
+	addresses := make([]uint64, d.NumNodes())
 	var maxChar rune
 	for _, node := range d.nodes {
 		for _, edge := range node.edges {
@@ -240,8 +240,6 @@ func Load(filename string) (Finder, error) {
 
 	return Read(f, 0)
 }
-
-const edgesOffset = (32*4 + 8 + 8)
 
 // Read returns a finder that accesses the dawg in-place using the
 // given io.ReaderAt

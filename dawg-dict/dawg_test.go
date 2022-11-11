@@ -1,4 +1,4 @@
-package dawg_test
+package dawg
 
 import (
 	"bufio"
@@ -7,19 +7,10 @@ import (
 	"os"
 	"sort"
 	"testing"
-
-	"github.com/milden6/dawg"
 )
 
-func testsWords() []string {
-	return []string{
-		"hello",
-		"jellow",
-	}
-}
-
-func createDawg(words []string) dawg.Finder {
-	dawg := dawg.New()
+func createDawg(words []string) Finder {
+	dawg := NewDawg()
 	for _, word := range words {
 		dawg.Add(word)
 	}
@@ -27,7 +18,7 @@ func createDawg(words []string) dawg.Finder {
 	return dawg.Finish()
 }
 
-func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
+func testDawg(t *testing.T, dawg Finder, words []string) {
 	added := dawg.NumAdded()
 	if added != len(words) {
 		t.Errorf("NumWords() returned %d, expected %d", added, len(words))
@@ -47,7 +38,7 @@ func testDawg(t *testing.T, dawg dawg.Finder, words []string) {
 	}
 }
 
-func runTest(t *testing.T, words []string) dawg.Finder {
+func runTest(t *testing.T, words []string) Finder {
 	finder := createDawg(words)
 	//finder.Print()
 	testDawg(t, finder, words)
@@ -62,7 +53,7 @@ func runTest(t *testing.T, words []string) dawg.Finder {
 	//dawg.DumpFile(f)
 	//f.Close()
 
-	saved, err := dawg.Load("test.dawg")
+	saved, err := Load("test.dawg")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -101,7 +92,7 @@ func Test5Words(t *testing.T) {
 	})
 }
 
-func testPrefixes(t *testing.T, words []string, word string, shouldbe []dawg.FindResult) {
+func testPrefixes(t *testing.T, words []string, word string, shouldbe []FindResult) {
 	finder := createDawg(words)
 
 	results := finder.FindAllPrefixesOf(word)
@@ -127,7 +118,7 @@ func TestPrefixes(t *testing.T) {
 		"cats",
 	}
 
-	testPrefixes(t, words, "catsup", []dawg.FindResult{
+	testPrefixes(t, words, "catsup", []FindResult{
 		{Word: "", Index: 0},
 		{Word: "cat", Index: 2},
 		{Word: "cats", Index: 4},
@@ -205,17 +196,17 @@ func TestEnumerate(t *testing.T) {
 				t.Errorf("Bad index at %v %v %v", index, string(word), final)
 			}
 		case "catn":
-			return dawg.Skip
+			return Skip
 		case "catni":
 			fallthrough
 		case "catnip":
 			t.Error("Should not have got to catni")
 		case "cats":
-			return dawg.Stop
+			return Stop
 		case "zzz":
 			t.Error("Stop had no effect.")
 		}
-		return dawg.Continue
+		return Continue
 	})
 
 	if total != 4 {
@@ -224,7 +215,7 @@ func TestEnumerate(t *testing.T) {
 }
 
 func ExampleNew() {
-	dawg := dawg.New()
+	dawg := NewDawg()
 
 	dawg.Add("blip")   // index 0
 	dawg.Add("cat")    // index 1

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
 	"strconv"
 )
 
@@ -63,8 +64,11 @@ type Finder interface {
 	// Find all prefixes of the given string
 	FindAllPrefixesOf(input string) []FindResult
 
-	// Find string by given prefix
-	FindByPrefix(input string) string
+	// Find words by given prefix
+	FindByPrefix(input string) []string
+
+	// Find first word by given prefix
+	FindFirstByPrefix(input string) string
 
 	// Find the index of the given string
 	IndexOf(input string) int
@@ -142,8 +146,8 @@ type dawg struct {
 	hasEmptyWord    bool
 }
 
-// New creates a new dawg
-func New() Builder {
+// NewDawg creates a new dawg
+func NewDawg() Builder {
 	return &dawg{
 		nextID:         1,
 		minimizedNodes: make(map[string]int),
@@ -277,7 +281,20 @@ func (d *dawg) Print() {
 	DumpFile(d.r)
 }
 
-func (d *dawg) FindByPrefix(input string) string {
+// FindByPrefix returns all items in the dawg with given prefix.
+// It will panic if the dawg is not finished.
+func (d *dawg) FindByPrefix(input string) []string {
+	d.checkFinished()
+
+	findedPrefixes := []string{}
+
+	//TODO: implement logic
+	return findedPrefixes
+}
+
+// FindFirstByPrefix returns first item with given prefix.
+// It will panic if the dawg is not finished.
+func (d *dawg) FindFirstByPrefix(input string) string {
 	d.checkFinished()
 
 	//avoid alloc
@@ -299,11 +316,12 @@ func (d *dawg) FindByPrefix(input string) string {
 
 	nodeResult := d.getNode(&r, node)
 
-	// for each edge
+	// only first edge
 	for {
-		iterateEdge := nodeResult.edges[0]
-		nodeResult = d.getNode(&r, iterateEdge.node)
-		wordSl = append(wordSl, iterateEdge.ch)
+		firstEdge := nodeResult.edges[0]
+		wordSl = append(wordSl, firstEdge.ch)
+
+		nodeResult = d.getNode(&r, firstEdge.node)
 
 		if nodeResult.final {
 			break
@@ -605,4 +623,23 @@ func (d *dawg) atIndex(r *bitSeeker, nodeNumber, atIndex, targetIndex int, runes
 	}
 	return "", false
 
+}
+
+// SortAndUniq sorts and removes duplicates
+func SortAndUniq(words []string) []string {
+	sort.Slice(words, func(i, j int) bool {
+		return words[i] <= words[j]
+	})
+
+	uniqDict := make(map[string]struct{})
+	uniqWords := make([]string, 0, len(words))
+
+	for _, word := range words {
+		if _, keyExists := uniqDict[word]; !keyExists {
+			uniqDict[word] = struct{}{}
+			uniqWords = append(uniqWords, word)
+		}
+	}
+
+	return uniqWords
 }
